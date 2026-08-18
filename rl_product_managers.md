@@ -242,6 +242,19 @@ It also bare-subscripts a key that is absent for models litellm does not know �
 which is all three of ours. We register the OpenRouter prices with litellm and
 guarantee the key exists.
 
+**B5 — malformed tool arguments are indistinguishable from a provider outage.**
+`agents/tool_calling_agent.py::message_to_action` does
+`json.loads(tool_call["function"]["arguments"])` with no error handling. When the
+model emits invalid JSON in a tool call the exception propagates into the same
+bare `except Exception` as B1, and the rollout is recorded with an `error` key —
+exactly like a rate-limit. This one bit us: our first pass treated it as
+infrastructure, which both **inflated pass@1 by about 10 points** (real failures
+were being dropped from the denominator) and would have made the runner retry a
+deterministic failure forever. We now discriminate on the traceback: transport
+faults are excluded and retried, model-output faults are scored 0 and given
+their own `malformed_tool_args` taxonomy category. We also re-raise with the
+offending argument string attached, which upstream discards.
+
 **B4 — no resume.**
 `run()` writes a checkpoint but re-runs everything from scratch on restart.
 Our runner scans completed `(task_id, trial)` cells and issues only the missing

@@ -83,3 +83,51 @@ def test_load_dedupes_and_uses_trial_dirs(tmp_path: Path):
     s = summarize(tasks)
     assert s["pass_at_k"][1] == pytest.approx(1 / 3)
     assert s["total_rollouts"] == 3
+
+
+def test_malformed_tool_args_is_a_real_failure_not_an_infra_error():
+    """Regression: tau-bench's `message_to_action` does a bare
+    `json.loads(tool_call["function"]["arguments"])`. A model emitting invalid
+    JSON therefore raises, and tau-bench records it exactly like a provider
+    outage. Treating it as infrastructure inflates pass@1 and makes the runner
+    retry the same deterministic failure forever."""
+    from taurl.metrics import is_errored, is_model_fault
+
+    model_fault = {
+        "task_id": 1,
+        "reward": 0.0,
+        "info": {
+            "error": "Extra data: line 1 column 29 (char 28)",
+            "traceback": "... in message_to_action\n json.decoder.JSONDecodeError: Extra data",
+        },
+    }
+    infra = {
+        "task_id": 1,
+        "reward": 0.0,
+        "info": {"error": "RateLimitError", "traceback": "litellm.RateLimitError: 429"},
+    }
+    assert is_model_fault(model_fault) and not is_errored(model_fault)
+    assert is_errored(infra) and not is_model_fault(infra)
+
+
+def test_model_faults_stay_in_the_denominator(tmp_path):
+    """A malformed-JSON rollout must count as a 0, not vanish from the stats."""
+    from taurl.metrics import load_results
+
+    d = tmp_path / "trial_0"
+    d.mkdir(parents=True)
+    (d / "r.json").write_text(
+        json.dumps(
+            [
+                {"task_id": 1, "reward": 1.0, "info": {}},
+                {
+                    "task_id": 1,
+                    "reward": 0.0,
+                    "info": {"error": "Extra data", "traceback": "message_to_action"},
+                },
+            ]
+        )
+    )
+    # same task, same trial -> last wins; the point is it is not dropped
+    tasks = load_results(tmp_path)
+    assert tasks[1].n == 1 and tasks[1].c == 0

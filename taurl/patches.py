@@ -20,6 +20,7 @@ What we change and why:
 """
 from __future__ import annotations
 
+import json
 import random
 import threading
 import time
@@ -40,6 +41,17 @@ _TRANSIENT = (
     litellm.APIConnectionError,
     litellm.Timeout,
 )
+
+class MalformedToolArguments(ValueError):
+    """The model emitted tool-call arguments that were not valid JSON.
+
+    tau-bench raises a bare `json.JSONDecodeError` from `message_to_action` and
+    discards the trajectory, so the offending string is lost. We re-raise with
+    the raw arguments attached. Semantics are unchanged -- the rollout still
+    fails and still scores 0 -- but now we can quote what the model actually
+    produced.
+    """
+
 
 _applied = False
 _lock = threading.Lock()
@@ -150,6 +162,22 @@ def apply(tier: config.Tier) -> None:
             )
 
         agent_mod.ToolCallingAgent.solve = _solve
+
+        # Preserve the evidence when the model emits invalid JSON arguments.
+        _orig_m2a = agent_mod.message_to_action
+
+        def _message_to_action(message):
+            try:
+                return _orig_m2a(message)
+            except json.JSONDecodeError as exc:
+                try:
+                    fn = message["tool_calls"][0]["function"]
+                    detail = f"tool={fn.get('name')!r} raw_arguments={fn.get('arguments')!r}"
+                except Exception:
+                    detail = "<could not recover raw arguments>"
+                raise MalformedToolArguments(f"{exc} | {detail}") from exc
+
+        agent_mod.message_to_action = _message_to_action
 
         # The agent's temperature is passed explicitly by tau-bench, so we do not
         # force one here -- that would silently override the run config.

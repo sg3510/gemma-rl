@@ -17,12 +17,13 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from taurl import config
-from taurl.metrics import is_errored, is_success
+from taurl.metrics import is_errored, is_model_fault, is_success
 from taurl.triage import WRITE_TOOLS
 
 # Ordered by precedence: the first matching category wins, most-mechanical first.
 CATEGORIES = [
     ("infra_error", "Rollout crashed (provider/API). Excluded from metrics."),
+    ("malformed_tool_args", "Emitted tool-call arguments that were not valid JSON."),
     ("step_cap", "Hit the step cap without the conversation ending."),
     ("unknown_tool", "Called a tool that does not exist."),
     ("tool_arg_error", "Called a real tool with arguments the env rejected."),
@@ -40,6 +41,8 @@ def classify(entry: dict) -> tuple[str, str]:
 
     if is_errored(entry):
         return "infra_error", str(info.get("error"))[:200]
+    if is_model_fault(entry):
+        return "malformed_tool_args", str(info.get("error"))[:200]
 
     # What the environment said back to the agent.
     tool_obs = [m for m in traj if m.get("role") == "tool"]
@@ -146,7 +149,10 @@ def report(counts: Counter, examples: dict, total: int, passed: int) -> str:
             continue
         lines.append(f"| `{cat}` | {n} | {n / failed:.0%} | {desc} |")
 
-    mech = sum(counts.get(c, 0) for c in ("step_cap", "unknown_tool", "tool_arg_error"))
+    mech = sum(
+        counts.get(c, 0)
+        for c in ("step_cap", "unknown_tool", "tool_arg_error", "malformed_tool_args")
+    )
     cap = sum(counts.get(c, 0) for c in ("no_mutation", "missing_output", "wrong_mutation"))
     lines += [
         "",

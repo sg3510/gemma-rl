@@ -37,17 +37,45 @@ def is_success(reward: float) -> bool:
     return reward > 1 - SUCCESS_EPS
 
 
+# Exceptions that surface inside `agent.solve` but are the MODEL's fault, not
+# the provider's. The big one: tau-bench does
+# `json.loads(tool_call["function"]["arguments"])` in `message_to_action` with no
+# error handling, so a model that emits malformed JSON in a tool call blows up
+# the whole rollout. That is a genuine agent failure and must be scored 0, not
+# excluded. tau-bench catches every exception identically, so the traceback is
+# the only thing that distinguishes them.
+MODEL_FAULT_MARKERS = (
+    "json.decoder.JSONDecodeError",
+    "message_to_action",
+    "MalformedToolArguments",
+)
+
+
+def is_model_fault(entry: dict) -> bool:
+    """True if the rollout raised because of the model's own output."""
+    info = entry.get("info")
+    if not isinstance(info, dict) or "error" not in info:
+        return False
+    blob = f"{info.get('error', '')}\n{info.get('traceback', '')}"
+    return any(m in blob for m in MODEL_FAULT_MARKERS)
+
+
 def is_errored(entry: dict) -> bool:
-    """True if this rollout crashed rather than genuinely failing the task.
+    """True if this rollout crashed on INFRASTRUCTURE rather than failing the task.
 
     tau-bench's `run._run` wraps `agent.solve` in a bare `except Exception` and
     records the crash as `reward=0.0` with an `error` key in `info`. That makes
     an exhausted retry budget or a 500 from the provider look exactly like the
     agent failing the task, which would silently deflate pass@1. We exclude
-    these from the denominator entirely and re-run them instead.
+    those from the denominator and re-run them.
+
+    But we must NOT do that for failures the model itself caused -- excluding
+    those would inflate pass@1 and make the runner retry them forever.
     """
     info = entry.get("info")
-    return isinstance(info, dict) and "error" in info
+    if not isinstance(info, dict) or "error" not in info:
+        return False
+    return not is_model_fault(entry)
 
 
 def pass_at_k(n: int, c: int, k: int) -> float:
