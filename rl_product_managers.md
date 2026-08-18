@@ -412,6 +412,61 @@ measurement to a single named provider and record it with every number.
 
 ---
 
+## D13b — CORRECTION: fp8 vs bf16 was an artifact; the stack is now pinned
+
+D13 reported fp8 at 53.8% and bf16 at 22.2% and flagged it as untrustworthy.
+It was worse than untrustworthy — it was wrong, and for the reason we suspected:
+non-random attrition.
+
+Re-run per provider (not per precision group), 10 retail train tasks each:
+
+| provider | quant | completed | reward | infra errors | wall |
+|---|---|---|---|---|---|
+| DeepInfra | fp8 | 10/10 | 70% | 0 | 2.1 min |
+| **NextBit** | **bf16** | 10/10 | 70% | 0 | **2.0 min** |
+| Novita | bf16 | 10/10 | 70% | 0 | 2.2 min |
+| Venice | bf16 | 10/10 | 80% | 0 | 2.7 min |
+| SiliconFlow | fp8 | 0/10 | — | 10 | `NotFoundError` |
+| Parasail | bf16 | 0/10 | — | 10 | `NotFoundError` |
+
+SiliconFlow and Parasail do not serve `tools` at all — exactly the two that
+declared `tools=False` in OpenRouter's endpoint listing. Every call to them
+failed, which is what dragged the group means apart. The four backends that
+actually work agree within sampling noise.
+
+**Lesson for the writeup:** the first fp8/bf16 comparison produced a large,
+confident, publishable-looking number that was pure measurement artifact. What
+saved us was refusing to bank it and looking at the attrition column.
+
+**Decided:** pin the agent to a single named backend —
+`{"only": ["NextBit"], "allow_fallbacks": false, "require_parameters": true}`.
+bf16 to match the precision we will fine-tune in, full 262K context, best
+throughput of the bf16 options. `require_parameters` makes OpenRouter refuse a
+backend that cannot serve our tool payload rather than silently degrading.
+
+## D13c — Google AI Studio: correct, but quota-bound
+
+The `AISTUDIO_GOOGLE_KEY` route was evaluated as the ideal "one stack, one
+precision" answer, and it is *correct* where OpenRouter's Google endpoint is
+not: 3/3 probes returned properly separated parallel tool calls with valid JSON.
+`gemini-3.7-flash` is also callable there, so in principle one key could serve
+both agent and customer.
+
+It fails on throughput. With realistic tau-bench prompts (~4.2K tokens: 16 tool
+schemas plus the policy wiki) the free tier returns 429 for most calls:
+
+| concurrency | succeeded |
+|---|---|
+| 4 | 2 of 8 |
+| 8 | 4 of 16 |
+
+A trivial-prompt probe had shown 12/12 at concurrency 12, which was misleading —
+the binding quota is tokens per minute, not requests.
+
+**Decided:** stay on OpenRouter pinned to NextBit. Revisit AI Studio if billing
+is enabled on the key, since a single first-party backend is otherwise the
+cleanest option short of self-hosting.
+
 ## D14 — Our telecom number disagrees with the Artificial Analysis leaderboard
 
 Artificial Analysis reports **44%** for Gemma 4 26B A4B on τ²-bench telecom.

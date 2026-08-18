@@ -83,7 +83,7 @@ def run_sweep(
     check_split_hygiene(env, split, name)
 
     patches.apply(tier)
-    config.require_api_key()
+    config.require_api_key(tier)
 
     sweep_dir = config.RESULTS_DIR / name
     sweep_dir.mkdir(parents=True, exist_ok=True)
@@ -95,6 +95,7 @@ def run_sweep(
         "num_tasks": len(task_ids),
         "trials": trials,
         "tier": tier.name,
+        "agent_provider": tier.agent_provider,
         "agent_model": tier.agent_model,
         "user_model": config.USER_MODEL,
         "user_model_alias": config.USER_MODEL_ALIAS,
@@ -126,7 +127,7 @@ def run_sweep(
 
         tau_run(
             RunConfig(
-                model_provider=config.PROVIDER,
+                model_provider=tier.agent_provider,
                 user_model_provider=config.PROVIDER,
                 model=tier.agent_model,
                 user_model=config.USER_MODEL_ALIAS,
@@ -168,7 +169,13 @@ def main() -> None:
     ap.add_argument("--tasks", type=int, help="run the first N task ids")
     ap.add_argument("--task-ids", type=int, nargs="+", help="explicit task ids")
     ap.add_argument("--trials", type=int, default=1)
-    ap.add_argument("--tier", choices=["free", "paid"], default=None)
+    ap.add_argument("--tier", choices=list(config.TIERS), default=None)
+    ap.add_argument(
+        "--only-provider",
+        help="pin the agent to ONE named OpenRouter backend, so the serving "
+             "stack is fixed across runs (see D13: backend identity moves the "
+             "score by ~30 points)",
+    )
     ap.add_argument(
         "--max-concurrency",
         type=int,
@@ -191,6 +198,19 @@ def main() -> None:
         task_ids = list(range(min(n, sizes[args.split])))
 
     tier = config.get_tier(args.tier)
+    if args.only_provider:
+        tier = dataclasses.replace(
+            tier,
+            name=f"{tier.name}:{args.only_provider}",
+            extra_body={
+                "provider": {
+                    "only": [args.only_provider],
+                    "allow_fallbacks": False,
+                    # Never silently swap precision underneath us.
+                    "require_parameters": True,
+                }
+            },
+        )
     if args.max_concurrency:
         tier = dataclasses.replace(tier, max_concurrency=args.max_concurrency)
 

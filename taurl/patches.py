@@ -110,14 +110,18 @@ def _make_completion(
     num_retries: int,
     force_temperature: float | None,
     force_model: str | None = None,
+    extra_body: dict | None = None,
 ):
     """Build a `completion` replacement for one call site (agent or customer)."""
 
     def _completion(**kwargs):
-        # Keep every request off the backends that mis-serialize tool calls.
-        extra = dict(kwargs.get("extra_body") or {})
-        extra.setdefault("provider", config.PROVIDER_ROUTING)
-        kwargs["extra_body"] = extra
+        # Pin the serving stack for this role. For OpenRouter that means
+        # excluding backends that mis-serialize tool calls (B6); single-backend
+        # stacks like AI Studio need nothing.
+        if extra_body:
+            merged = dict(extra_body)
+            merged.update(kwargs.get("extra_body") or {})
+            kwargs["extra_body"] = merged
         if force_model is not None:
             # The customer is addressed by a slash-free alias so tau-bench can
             # build a valid checkpoint path; restore the real id here.
@@ -214,7 +218,10 @@ def apply(tier: config.Tier) -> None:
         # The agent's temperature is passed explicitly by tau-bench, so we do not
         # force one here -- that would silently override the run config.
         agent_mod.completion = _make_completion(
-            role="agent", num_retries=tier.num_retries, force_temperature=None
+            role="agent",
+            num_retries=tier.num_retries,
+            force_temperature=None,
+            extra_body=tier.extra_body,
         )
         # The customer gets pinned to greedy. See module docstring, reason 2.
         user_mod.completion = _make_completion(
@@ -222,6 +229,9 @@ def apply(tier: config.Tier) -> None:
             num_retries=tier.num_retries,
             force_temperature=config.USER_TEMPERATURE,
             force_model=config.USER_MODEL,
+            # The customer always runs on OpenRouter (D6), so it still needs the
+            # broken backend excluded.
+            extra_body={"provider": config.PROVIDER_ROUTING},
         )
         _applied = True
 

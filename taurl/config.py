@@ -5,7 +5,7 @@ Rule: if you change something in this file, log it in rl_product_managers.md.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -84,6 +84,31 @@ BLOCKED_PROVIDERS = ["Google"]
 # allow_fallbacks stays on so we keep throughput across the remaining backends.
 PROVIDER_ROUTING = {"ignore": BLOCKED_PROVIDERS, "allow_fallbacks": True}
 
+# THE pinned stack. Measured per-provider on 10 retail train tasks (2026-08-18):
+#
+#   DeepInfra   fp8   10/10 complete  70%  2.1 min
+#   NextBit     bf16  10/10 complete  70%  2.0 min   <-- chosen
+#   Novita      bf16  10/10 complete  70%  2.2 min
+#   Venice      bf16  10/10 complete  80%  2.7 min
+#   SiliconFlow fp8    0/10 -- does not serve `tools` (NotFoundError)
+#   Parasail    bf16   0/10 -- does not serve `tools` (NotFoundError)
+#
+# The four working backends agree within sampling noise, which retires the
+# earlier "fp8 beats bf16 by 31 points" scare: that gap was SiliconFlow and
+# Parasail failing 100% of calls and biasing both group means.
+#
+# NextBit is chosen for bf16 (matching the precision we will fine-tune in),
+# full 262K context, and the best throughput of the bf16 options.
+#
+# `require_parameters` makes OpenRouter refuse any backend that cannot serve
+# our `tools` payload, rather than silently degrading.
+PINNED_PROVIDER = "NextBit"
+PINNED_ROUTING = {
+    "only": [PINNED_PROVIDER],
+    "allow_fallbacks": False,
+    "require_parameters": True,
+}
+
 # Task counts per environment and split, and which splits actually exist.
 # NOTE: tau-bench's airline env ships a TEST SPLIT ONLY -- `airline/env.py`
 # raises ValueError for "train" and "dev". So airline can serve as an
@@ -120,30 +145,82 @@ WRITE_TOOLS = {
 
 @dataclass(frozen=True)
 class Tier:
-    """Free vs paid OpenRouter serving for the agent."""
+    """A fully-pinned serving stack for the agent.
+
+    The whole point of naming this is that a benchmark number is a property of
+    the model AND the stack that served it (see D13/D14 in the decision log).
+    OpenRouter fans one model id across 8 backends at mixed precision with
+    different tool-call parsers, and we measured ~30-point swings between them.
+    So every run records exactly which stack produced it.
+    """
 
     name: str
     agent_model: str
+    agent_provider: str
     max_concurrency: int
     num_retries: int
+    # OpenRouter-only routing controls; empty for single-backend stacks.
+    extra_body: dict = field(default_factory=dict)
+    # Env var holding the key, and the env var litellm expects it in.
+    key_env: str = "OPENROUTER_API_KEY"
+    key_target: str = "OPENROUTER_API_KEY"
 
 
-FREE = Tier(name="free", agent_model=AGENT_MODEL_FREE, max_concurrency=2, num_retries=8)
-PAID = Tier(name="paid", agent_model=AGENT_MODEL_PAID, max_concurrency=16, num_retries=5)
+FREE = Tier(
+    name="free",
+    agent_model=AGENT_MODEL_FREE,
+    agent_provider="openrouter",
+    max_concurrency=2,
+    num_retries=8,
+    extra_body={"provider": PROVIDER_ROUTING},
+)
+PAID = Tier(
+    name="paid",
+    agent_model=AGENT_MODEL_PAID,
+    agent_provider="openrouter",
+    max_concurrency=16,
+    num_retries=5,
+    extra_body={"provider": PINNED_ROUTING},
+)
+# Google AI Studio: ONE backend, one serving config, one precision. Verified
+# 2026-08-18 to emit correctly separated parallel tool calls (unlike
+# OpenRouter's "Google" endpoint, which merges them -- see B6). Gemma is free
+# here and showed no throttling at concurrency 12. This is the stack that makes
+# a before/after RL comparison meaningful, because nothing about it varies
+# between runs.
+AISTUDIO = Tier(
+    name="aistudio",
+    agent_model="gemma-4-26b-a4b-it",
+    agent_provider="gemini",
+    max_concurrency=12,
+    num_retries=5,
+    key_env="AISTUDIO_GOOGLE_KEY",
+    key_target="GEMINI_API_KEY",
+)
 
-TIERS = {"free": FREE, "paid": PAID}
+TIERS = {"free": FREE, "paid": PAID, "aistudio": AISTUDIO}
 
 
 def get_tier(name: str | None = None) -> Tier:
-    """Resolve the serving tier. Defaults to free; override with TAURL_TIER."""
-    return TIERS[(name or os.environ.get("TAURL_TIER", "free")).lower()]
+    """Resolve the serving stack. Override with TAURL_TIER."""
+    return TIERS[(name or os.environ.get("TAURL_TIER", "aistudio")).lower()]
 
 
-def require_api_key() -> str:
-    key = os.environ.get("OPENROUTER_API_KEY")
-    if not key:
+def require_api_key(tier: "Tier | None" = None) -> str:
+    """Ensure the agent's key is present and exported where litellm expects it.
+
+    The customer simulator always runs on OpenRouter (D6 pinned it to
+    gemini-3.7-flash, which AI Studio does not serve), so that key is required
+    regardless of which stack the agent uses.
+    """
+    if not os.environ.get("OPENROUTER_API_KEY"):
         raise RuntimeError(
-            "OPENROUTER_API_KEY is not set. Put it in .env at the repo root "
-            "(already gitignored)."
+            "OPENROUTER_API_KEY is not set (needed for the customer simulator). "
+            "Put it in .env at the repo root (already gitignored)."
         )
-    return key
+    if tier is not None and tier.key_env != "OPENROUTER_API_KEY":
+        key = os.environ.get(tier.key_env)
+        if not key:
+            raise RuntimeError(f"{tier.key_env} is not set (needed for {tier.name}).")
+        os.environ.setdefault(tier.key_target, key)
+    return os.environ["OPENROUTER_API_KEY"]
