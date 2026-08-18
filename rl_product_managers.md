@@ -262,6 +262,71 @@ ones.
 
 ---
 
+## D11 — Retail is too easy; airline and telecom are the real targets
+
+**Measured, held-out test splits, temperature 1.0, Gemini 3.7 Flash customer:**
+
+| environment | pass@1 | verdict |
+|---|---|---|
+| τ1 retail | ~65% | **too easy** — far above the 20–50% band |
+| τ1 airline | ~39% | **in band** |
+| τ2 telecom | measuring | hardest domain by published error rates |
+
+Retail landing at ~65% is the headline surprise. The original τ-bench authors
+declined to test 7B/13B models because the benchmark was too hard, and GPT-4o
+managed 61% on retail in 2024. A 2026 open 26B-A4B model (3.8B active) now
+clears that. The capability frontier moved; the benchmark did not.
+
+Airline at ~39% is exactly the band we wanted, which matches the original
+finding that airline encodes far more arbitrary domain policy than retail —
+removing the policy document barely dented retail scores but crushed airline.
+
+**The catch:** τ1 airline ships a **test split only**. `airline/env.py` raises
+for `train` and `dev`. So it is a fine evaluation target and a useless training
+environment — selecting training tasks from those 50 and then reporting
+improvement on the same 50 is precisely the D2 failure. Our split guard prints
+a warning whenever airline touches `test` so this cannot happen silently.
+
+That is what pushes us to τ2.
+
+---
+
+## D12 — Adopt τ2-bench for the training environment
+
+**Decided:** add `sierra-research/tau2-bench` (pinned `a2c0247`) as a second
+submodule in its own virtualenv.
+
+**Why a second venv:** τ2 pins `litellm>=1.80.15,<1.82.7`; our τ1 harness runs
+1.97.0. Rather than downgrade and risk changing τ1 numbers mid-study, the two
+benchmarks get separate environments and a shared results reader
+(`taurl/tau2_results.py`) so pass@k is computed identically for all three.
+
+**Why τ2 telecom specifically:**
+
+| domain | train / test | full pool |
+|---|---|---|
+| retail | 74 / 40 | 114 |
+| airline | 30 / 20 | 50 |
+| **telecom** | 74 / 40 | **2,285** |
+
+Telecom is the only environment in the whole τ family with a task pool large
+enough for real RL, it has a genuine train/test split, and published error
+analysis marks it the hardest domain (98% duplicate-call, 53% max-steps failure
+rates for baseline methods). It is also the most policy-dense: a 17KB
+tech-support manual plus a 16KB workflow document, which is exactly the
+policy-following axis the airline result says matters.
+
+τ2 also adds *dual control* — the user has their own tools, not just speech.
+
+**What we did not pick:** τ3 banking. Frontier models sit at 48–55% and the best
+open-weight entry is 25%; Gemma would likely produce all-zero rollout groups.
+
+**Bonus:** τ2 ships `--auto-resume`, `--max-retries` and `--max-concurrency`
+natively, so most of the scaffolding we had to build for τ1 (B1–B4) is
+unnecessary there.
+
+---
+
 ## Open questions
 
 - Does Gemma 4 26B A4B actually land in the 20–50% pass@1 band on retail?

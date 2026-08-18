@@ -98,7 +98,7 @@ def pass_hat_k(n: int, c: int, k: int) -> float:
 
 @dataclass
 class TaskStats:
-    task_id: int
+    task_id: int | str
     rewards: list[float] = field(default_factory=list)
 
     @property
