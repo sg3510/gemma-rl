@@ -31,17 +31,8 @@ from taurl.metrics import TaskStats, load_results
 FRONTIER_LO = 0.25
 FRONTIER_HI = 0.75
 
-# Retail tools that mutate the database. Everything else is a read.
-WRITE_TOOLS = {
-    "cancel_pending_order",
-    "modify_pending_order_address",
-    "modify_pending_order_items",
-    "modify_pending_order_payment",
-    "modify_user_address",
-    "return_delivered_order_items",
-    "exchange_delivered_order_items",
-    "transfer_to_human_agents",
-}
+# Kept for backwards compatibility; the per-env sets live in config.
+WRITE_TOOLS = config.WRITE_TOOLS["retail"]
 
 # Instruction phrasing that signals the customer withholds information until
 # asked -- the "conversational uncertainty" category.
@@ -66,13 +57,9 @@ LOOKUP_TOOLS = {
 }
 
 
-def load_tasks(split: str):
+def load_tasks(split: str, env: str = "retail"):
     """Import the raw tau-bench task objects for a split."""
-    module = {
-        "test": "tau_bench.envs.retail.tasks_test",
-        "train": "tau_bench.envs.retail.tasks_train",
-        "dev": "tau_bench.envs.retail.tasks_dev",
-    }[split]
+    module = f"tau_bench.envs.{env}.tasks_{split}"
     mod = __import__(module, fromlist=["*"])
     for attr in ("TASKS_TEST", "TASKS_TRAIN", "TASKS_DEV", "TASKS"):
         if hasattr(mod, attr):

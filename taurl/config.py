@@ -58,6 +58,39 @@ MODEL_PRICES = {
 # capability problem -- see taurl/failures.py.
 MAX_NUM_STEPS = 30
 
+# Task counts per environment and split, and which splits actually exist.
+# NOTE: tau-bench's airline env ships a TEST SPLIT ONLY -- `airline/env.py`
+# raises ValueError for "train" and "dev". So airline can serve as an
+# evaluation target but cannot host an RL curriculum without us authoring a
+# split ourselves. Retail is the only tau1 domain with a real training pool.
+SPLIT_SIZES = {
+    "retail": {"dev": 20, "test": 115, "train": 500},
+    "airline": {"test": 50},
+}
+
+# Tools that mutate the database, per environment. Everything else is a read.
+WRITE_TOOLS = {
+    "retail": {
+        "cancel_pending_order",
+        "modify_pending_order_address",
+        "modify_pending_order_items",
+        "modify_pending_order_payment",
+        "modify_user_address",
+        "return_delivered_order_items",
+        "exchange_delivered_order_items",
+        "transfer_to_human_agents",
+    },
+    "airline": {
+        "book_reservation",
+        "cancel_reservation",
+        "send_certificate",
+        "update_reservation_baggages",
+        "update_reservation_flights",
+        "update_reservation_passengers",
+        "transfer_to_human_agents",
+    },
+}
+
 
 @dataclass(frozen=True)
 class Tier:
