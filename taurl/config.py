@@ -58,6 +58,32 @@ MODEL_PRICES = {
 # capability problem -- see taurl/failures.py.
 MAX_NUM_STEPS = 30
 
+# OpenRouter routes a single model id across many backend providers, and they do
+# NOT all serve tool calls correctly. Measured 2026-08-18 with a prompt that
+# invites two parallel tool calls (3 samples each):
+#
+#   DeepInfra, NextBit, SiliconFlow, Novita, Venice, Parasail   6/6 valid JSON
+#   Google                                                      0/6 -- MERGED
+#   Cloudflare                                                  rate-limited, untested
+#
+# Google's endpoint concatenates parallel tool calls into ONE tool_call whose
+# `arguments` string holds two JSON objects back to back:
+#
+#   {"order_id": "#W5765741"}{"order_id": "#W7736983"}
+#
+# tau-bench then does a bare json.loads on that and the whole rollout dies. This
+# is a serving-side tool-call parsing bug -- the same class of failure seen
+# self-hosting Gemma 4 on vLLM without `--enable-auto-tool-choice
+# --tool-call-parser gemma4`. We cannot pass parser flags to someone else's
+# server, so we exclude the provider instead.
+#
+# This mattered: it killed ~11% of all retail rollouts, every one scored as a
+# task failure, understating pass@1.
+BLOCKED_PROVIDERS = ["Google"]
+
+# allow_fallbacks stays on so we keep throughput across the remaining backends.
+PROVIDER_ROUTING = {"ignore": BLOCKED_PROVIDERS, "allow_fallbacks": True}
+
 # Task counts per environment and split, and which splits actually exist.
 # NOTE: tau-bench's airline env ships a TEST SPLIT ONLY -- `airline/env.py`
 # raises ValueError for "train" and "dev". So airline can serve as an

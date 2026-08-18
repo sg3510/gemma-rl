@@ -255,6 +255,45 @@ faults are excluded and retried, model-output faults are scored 0 and given
 their own `malformed_tool_args` taxonomy category. We also re-raise with the
 offending argument string attached, which upstream discards.
 
+**B6 — one backend provider silently destroys ~11% of all rollouts.**
+Not a tau-bench bug so much as a bug tau-bench cannot survive. OpenRouter routes
+a single model id across 8 backends, and Google's own endpoint merges parallel
+tool calls into ONE `tool_call` whose `arguments` string holds two JSON objects
+back to back:
+
+```
+{"order_id": "#W5765741"}{"order_id": "#W7736983"}
+```
+
+`message_to_action` does a bare `json.loads` on that (B5) and the rollout dies,
+scored as a task failure. Measured impact on tau1 retail: **49 of 460 rollouts
+(11%), touching 42 of 115 tasks**, every one recorded as the agent failing.
+Retail pass@1 went from 65.9% to ~73% once the provider was excluded.
+
+A controlled probe (a prompt inviting two parallel tool calls, 3 samples per
+backend) isolated it cleanly:
+
+```
+DeepInfra, NextBit, SiliconFlow, Novita, Venice, Parasail   6/6 valid JSON
+Google                                                      0/6 MERGED
+Cloudflare                                                  rate-limited
+```
+
+This is the same failure class seen self-hosting Gemma 4 on vLLM without
+`--enable-auto-tool-choice --tool-call-parser gemma4`: a server whose tool-call
+parser does not understand the model's syntax. We cannot pass parser flags to
+someone else's server, so we exclude the provider and record which backend
+served every request.
+
+We also added a repair net: if a merged payload arrives from an unblocked
+backend, decode only the first JSON object. That is faithful rather than a
+fudge — tau-bench itself keeps only the first tool call (`tool_calls[:1]`).
+Repairs are counted and reported; unrepairable output still fails honestly.
+
+**The lesson worth writing up:** a benchmark score for a hosted open model is
+not a property of the model. It is a property of the model *and* whichever
+anonymous backend served the request.
+
 **B4 — no resume.**
 `run()` writes a checkpoint but re-runs everything from scratch on restart.
 Our runner scans completed `(task_id, trial)` cells and issues only the missing
@@ -324,6 +363,103 @@ open-weight entry is 25%; Gemma would likely produce all-zero rollout groups.
 **Bonus:** τ2 ships `--auto-resume`, `--max-retries` and `--max-concurrency`
 natively, so most of the scaffolding we had to build for τ1 (B1–B4) is
 unnecessary there.
+
+---
+
+## D13 — The serving backend moves the score more than anything we changed
+
+**What happened:** OpenRouter fans one model id across 8 backend providers at
+mixed precision — DeepInfra and SiliconFlow at **fp8**, NextBit/Novita/Parasail/
+Venice at **bf16**, Google and Cloudflare undeclared. We were routing across all
+of them, so every number we produced was a blend of serving stacks.
+
+Then Google's endpoint turned out to be actively broken (see B6), and a
+follow-up probe on τ2 telecom split the remaining backends by precision:
+
+| group | pass@1 | n | `max_steps` | `infrastructure_error` |
+|---|---|---|---|---|
+| fp8 (DeepInfra, SiliconFlow) | 53.8% ± 13.8% | 13 | 0 | 5 |
+| bf16 (NextBit, Novita, Parasail, Venice) | 22.2% ± 9.8% | 18 | 6 | 8 |
+
+**This result is NOT trustworthy and we are not banking it.** Three confounds:
+
+1. **Provider identity is not precision.** Each group mixes several vendors with
+   different chat templates, tool parsers and sampling defaults. A 31-point gap
+   between "fp8 vendors" and "bf16 vendors" says the vendors differ, not that
+   fp8 beats bf16 — which would be backwards anyway, since fp8 is the lossy one.
+2. **Non-random attrition.** Pinning providers with `allow_fallbacks: false`
+   produced infrastructure errors on 5/18 and 8/26 attempts. Those dropouts are
+   not random with respect to task difficulty, so both means are suspect.
+3. **Tiny samples.** The two intervals overlap.
+
+The real signal is the `max_steps` column: the bf16 vendor group loops until it
+exhausts 200 steps a third of the time and the fp8 group never does. That is a
+serving-configuration difference — sampling parameters or tool-call parsing —
+not arithmetic precision.
+
+**Decision:** stop treating "the model on OpenRouter" as one thing. Pin
+measurement to a single named provider and record it with every number.
+
+**Which precision for fine-tuning later: bf16.**
+- The released Gemma 4 weights are bf16; that is the reference numerics.
+- LoRA/GRPO trains adapters in bf16 (or a 4-bit quantized base with bf16
+  adapters under QLoRA). fp8 is a *serving* optimization, not a training format.
+- Once we self-host for RL we control the stack, and the eval must match what we
+  train and serve or the improvement number is measuring the server.
+- So the target stack is **self-hosted vLLM, bf16, with
+  `--enable-auto-tool-choice --tool-call-parser gemma4`** — the flags whose
+  absence caused B6. Hosted-API measurement is a stopgap until then.
+
+---
+
+## D14 — Our telecom number disagrees with the Artificial Analysis leaderboard
+
+Artificial Analysis reports **44%** for Gemma 4 26B A4B on τ²-bench telecom.
+Our runs have ranged **20%–54%** depending on configuration. Same model id.
+
+Candidate explanations, ranked by how much evidence we actually have:
+
+1. **Serving backend — demonstrated, large.** See D13/B6. Google's endpoint
+   broke tool calls outright; provider groups differ by ~30 points. This alone
+   spans the disagreement.
+2. **Sample size — demonstrated.** Our telecom estimate moved 28.6% → 33.3% →
+   23.7% as n grew from 14 to 38. Standard error at n≈15 is ±12pp, so 44% was
+   never more than ~1.3 SE from our first reading. We should not have quoted a
+   14-sim number.
+3. **Reasoning mode — tested, inconclusive.** AA marks the model with a
+   reasoning lightbulb; we run reasoning off. A direct ablation gave 20.0%
+   (n=15, reasoning on, temp 1.0) vs 27.3% (n=11, reasoning on, temp 0) vs
+   23.7% (n=38, reasoning off). No separable effect at these sample sizes.
+4. **Temperature — untested, expected.** We measure at temp 1.0 because pass@k
+   is meaningless greedy; a leaderboard reports greedy. This should cost us
+   points relative to AA, in the observed direction.
+5. **Task set — untested.** We use τ2's 40-task `test` split. AA does not
+   publish which set it runs; `base` is 114 tasks and `full` is 2,285.
+
+**What this means for the project:** a hosted-API pass@1 is not a stable
+quantity. It is a measurement of a model *and* a serving stack *and* a sampling
+config. For a before/after RL claim that is fatal unless every one of those is
+pinned — which is the strongest argument yet for self-hosting before we train.
+
+---
+
+## D15 — What this has cost
+
+OpenRouter spend through the baseline and diagnostic phase: **$22.40**.
+
+| phase | cost |
+|---|---|
+| τ1 retail baseline (115 tasks × 4 trials, 460 rollouts) | $3.66 |
+| τ1 retail re-run after the provider fix | $4.90 |
+| τ1 airline, τ2 retail/airline/telecom, and all diagnostics | remainder |
+
+Roughly **$0.015 per trajectory** — agent ~$0.007, customer simulator ~$0.008.
+The customer costs about as much as the model under test, which is why we did
+not use gpt-4o for it (D6).
+
+Notably, **the diagnostics cost more than the baseline they corrected**, and
+were worth it: without them we would have published a retail number understated
+by ~8 points and a telecom number off by up to 30.
 
 ---
 

@@ -180,7 +180,9 @@ def summarize(tasks: dict[int, TaskStats], ks: list[int] | None = None) -> dict:
     if not tasks:
         return {"num_tasks": 0}
     n_min = min(t.n for t in tasks.values())
-    ks = ks or [k for k in (1, 2, 4, 8) if k <= n_min]
+    # Every k up to the smallest trial count -- skipping values (e.g. only
+    # reporting 1,2,4,8) hides the shape of the curve when n is not a power of 2.
+    ks = ks or list(range(1, n_min + 1))
 
     out = {
         "num_tasks": len(tasks),
