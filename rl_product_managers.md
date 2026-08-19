@@ -294,6 +294,24 @@ Repairs are counted and reported; unrepairable output still fails honestly.
 not a property of the model. It is a property of the model *and* whichever
 anonymous backend served the request.
 
+**B7 — Gemma's tool calls are not JSON, which is the root cause of B6.**
+Rendering a tool call through the official chat template shows what the model
+actually emits:
+
+```
+<|tool_call>call:cancel_pending_order{order_id:<|"|>#W123<|"|>}<tool_call|>
+```
+
+Custom special tokens, not `{"order_id": "#W123"}`. The JSON every API returns is
+a *parsed view* produced server-side. A server without the Gemma tool-call
+parser mis-converts it, and given two parallel calls concatenates them into a
+single arguments string — precisely the corruption in B6. This confirms the
+mechanism we had inferred from `--tool-call-parser gemma4` and turns it from a
+plausible story into a demonstrated one.
+
+It also has an upside: because the template performs the inverse mapping, token
+sequences can be reconstructed offline from saved API traces (see D19).
+
 **B4 — no resume.**
 `run()` writes a checkpoint but re-runs everything from scratch on restart.
 Our runner scans completed `(task_id, trial)` cells and issues only the missing
@@ -561,6 +579,99 @@ not use gpt-4o for it (D6).
 Notably, **the diagnostics cost more than the baseline they corrected**, and
 were worth it: without them we would have published a retail number understated
 by ~8 points and a telecom number off by up to 30.
+
+---
+
+## D18 — Telecom is the environment. Final baseline and curriculum.
+
+**tau2 telecom, held-out test split, 40 tasks x 4 trials = 160 rollouts**
+(NextBit bf16, agent temp 1.0, customer gemini-3.7-flash temp 0, step cap 140):
+
+| k | pass@k | pass^k |
+|---|---|---|
+| 1 | **35.0%** | 35.0% |
+| 2 | 51.7% | 18.3% |
+| 4 | 67.5% | 5.0% |
+
+pass@1 of 35% sits in the middle of the 20-50% target band, sweet spot 30-40%.
+
+**The number that actually decides it — the per-task histogram:**
+
+```
+0/4: 13  #############   degenerate (no gradient)
+1/4: 11  ###########     FRONTIER
+2/4:  5  #####           FRONTIER
+3/4:  9  #########       FRONTIER
+4/4:  2  ##              degenerate (no gradient)
+```
+
+**62% of tasks (25/40) produce mixed rollout groups** — the model demonstrably
+can solve them but does not reliably, which is exactly the condition GRPO needs.
+Only 38% are degenerate. For comparison, tau1 retail at n=4 gave 50%.
+
+**And a difficulty ladder falls out of the scenario structure:**
+
+| scenario | pool share | pass@1 | frontier tasks |
+|---|---|---|---|
+| `service_issue` | 47 (2%) | 57% | 13/15 = **87%** |
+| `mobile_data_issue` | 254 (11%) | 44% | 6/9 = **67%** |
+| `mms_issue` | 1,984 (**87%**) | **9%** | 6/16 = 38% |
+
+**The trap to avoid:** our 35% comes from the test split, which is deliberately
+balanced. The *full* pool is 87% `mms_issue` at 9% success. Sampling it
+uniformly would yield mostly all-zero groups. Any training set must be
+stratified by scenario, and every telecom number must be reported per-scenario —
+a single aggregate hides a 9%-to-57% spread.
+
+Read positively, this is the capability-frontier curriculum from the original
+brief, for free:
+
+- **Stage 1** — `service_issue` + `mobile_data_issue`: 301 tasks at 44-57%, in
+  band today.
+- **Stage 2** — `mms_issue`: 1,984 tasks at 9%, too hard now, becomes the
+  frontier as the model improves, and is effectively inexhaustible.
+
+Diversity concern answered: `mms_issue` is not one task repeated. Telecom tasks
+are drawn from **19 atomic faults** combined 1-9 at a time (peak 4-6), so the
+agent must diagnose a different fault set every episode rather than memorise an
+answer.
+
+---
+
+## D19 — Saved traces support offline RL, not GRPO
+
+We hold **901 successful trajectories** and **131 clean preference pairs**
+(same task, one success and one failure, same serving stack).
+
+**They cannot be used for GRPO.** GRPO is on-policy: each step samples a fresh
+group from the policy being trained. Our traces came from an API and carry no
+logprobs and no token ids.
+
+**But two things we initially missed make them genuinely trainable:**
+
+1. **Token ids are recoverable offline.** Gemma's chat template inverts the
+   API's parsed JSON back into the model's native tool-call syntax (see B7), so
+   sequences can be reconstructed without the inference server. It is a
+   re-render, so whitespace and argument ordering are not guaranteed identical —
+   acceptable for SFT, needs care for importance ratios.
+2. **Logprobs come from a local teacher-forced forward pass.** Since nothing has
+   been trained yet, the base policy *is* the sampling policy, so these are
+   legitimate pi_old for a first update.
+
+So the offline family is open **on the M3 Pro today, at ~$0 of GPU spend**:
+
+| method | data | viable here |
+|---|---|---|
+| SFT / rejection-sampling FT (RAFT, STaR) | 901 successes | yes |
+| **DPO** | **131 matched pairs** | yes |
+| GRPO | needs on-policy rollouts | no -- needs 2x H100 |
+
+DPO is arguably the better fit: the pairs are naturally matched — identical
+task, identical customer, differing only in the policy's behaviour.
+
+**The discipline that still applies:** MLX 4-bit local weights are not NextBit
+bf16. Training a 4-bit local model invalidates the bf16 baseline, so we must
+re-baseline locally before claiming any delta.
 
 ---
 

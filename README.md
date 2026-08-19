@@ -6,6 +6,35 @@ turns per-task success rates into an RL curriculum.
 The design decisions behind all of this — and the bugs found in τ-bench along the
 way — are logged in **[rl_product_managers.md](rl_product_managers.md)**.
 
+## Status
+
+**Environment chosen: τ2 telecom.** Baseline complete on a fully pinned serving
+stack. Next step is training; see [reports/rl_readiness.md](reports/rl_readiness.md).
+
+| environment | tasks x trials | pass@1 | frontier tasks | stack |
+|---|---|---|---|---|
+| **τ2 telecom** | 40 x 4 | **35.0% ±3.8%** | **62%** | pinned |
+| τ2 airline | 20 x 2 | 45.0% ±7.9% | 30%* | pinned |
+| τ1 retail | 115 x 4 | 74.0% ±2.4% | 50% | unpinned |
+| τ1 airline | 50 x 4 | 48.7% ±4.0% | — | unpinned |
+
+\* measured at n=2, which systematically undercounts; see the decision log.
+
+"Frontier tasks" = share producing mixed rollout groups, i.e. usable GRPO
+signal. Unpinned numbers predate the serving-stack fix and are **not**
+comparable with pinned ones.
+
+Telecom also ships a difficulty ladder for free:
+
+| scenario | pool | pass@1 | frontier |
+|---|---|---|---|
+| `service_issue` | 47 | 57% | 87% |
+| `mobile_data_issue` | 254 | 44% | 67% |
+| `mms_issue` | 1,984 | 9% | 38% |
+
+Sample the pool **stratified** — it is 87% `mms_issue` at 9% success, so uniform
+sampling yields mostly all-zero groups.
+
 ## Setup
 
 ```bash
@@ -62,6 +91,33 @@ discriminate between tasks.
 | `taurl/metrics.py` | pass@k / pass^k |
 | `taurl/triage.py` | difficulty levels + frontier selection |
 | `taurl/failures.py` | mechanical-vs-capability failure taxonomy |
+
+## The pinned stack
+
+A benchmark score for a hosted open-weights model is not a property of the
+model. It is a property of the model *and* the backend that served it. We
+measured ~30-point swings between OpenRouter backends for the same model id, and
+one backend (Google's) corrupts tool calls outright. So everything is pinned and
+recorded per run:
+
+| knob | value |
+|---|---|
+| backend | OpenRouter → **NextBit only**, no fallbacks, `require_parameters` |
+| precision | bf16 (matches what we would fine-tune in) |
+| agent temperature | 1.0 (pass@k is meaningless greedy) |
+| customer | `gemini-3.7-flash` @ temp 0, fixed since day one |
+| step cap | 140 (τ2) / 30 (τ1) |
+| task split | `test`, held out |
+
+Full reasoning: [reports/leaderboard_vs_ours.md](reports/leaderboard_vs_ours.md).
+
+## Reports
+
+| file | what |
+|---|---|
+| [rl_product_managers.md](rl_product_managers.md) | decision log — every call and why |
+| [reports/leaderboard_vs_ours.md](reports/leaderboard_vs_ours.md) | why our numbers differ from published leaderboards |
+| [reports/rl_readiness.md](reports/rl_readiness.md) | what stands between us and a training run |
 
 ## Caveat on comparability
 
