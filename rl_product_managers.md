@@ -731,6 +731,41 @@ alone, which is why τ2 airline and τ1 retail stay as transfer evals.
 
 ---
 
+## D21 — Leaderboards omit error bars, and omit the bigger uncertainty entirely
+
+Applying the binomial to Artificial Analysis's τ²-telecom chart (18 models, 114
+tasks): at one trial per task, **15 of 17 adjacent pairs are statistically
+indistinguishable**; at four trials, still 11 of 17. The 95% CI half-width is
+±9.1 points at n=114, ±4.6 at n=456.
+
+Caveat in their favour, and it is the same correction we made to our own power
+maths: all models run the same tasks, so cross-model comparisons are paired and
+stronger than unpaired arithmetic suggests.
+
+**The more important point is that sampling error is the small term:**
+
+| source | magnitude |
+|---|---|
+| sampling (456 sims, p=.44) | ±4.6 pts |
+| serving backend, same model id | **~30 pts** |
+| our own readings of this model on this benchmark | **20%–54%** |
+
+Error bars would capture the first and miss the second — six times larger for a
+hosted open-weights model. Reporting ±4.6% would manufacture precision.
+
+**The fix is not error bars, it is publishing the serving configuration.** For
+closed API models most of it is determinate; for open-weights models routed
+through resellers it is the largest unreported variable and essentially nobody
+states it.
+
+This is the strongest argument for the shape of our own claim: a **before/after
+delta on a pinned stack** beats any absolute number, because pinning removes the
+variance that dwarfs the error bars. It also means a leaderboard position for an
+open-weights model should be read as "roughly this tier", never "beats the bar
+below it".
+
+---
+
 ## Open questions
 
 - Does Gemma 4 26B A4B actually land in the 20–50% pass@1 band on retail?

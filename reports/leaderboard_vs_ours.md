@@ -170,6 +170,56 @@ None of that is published, which is the point.
 
 ---
 
+## Leaderboards report no uncertainty, and the uncertainty they omit is not the one you would guess
+
+Published agent leaderboards present scores as bare numbers. Applying the
+binomial to Artificial Analysis's τ²-telecom chart (18 models), at 114 tasks
+with one trial each:
+
+| trials | 95% CI half-width @ p=.44 | adjacent pairs that are statistically indistinguishable |
+|---|---|---|
+| 1 (114 sims) | **±9.1 pts** | **15 of 17** |
+| 4 (456 sims) | ±4.6 pts | 11 of 17 |
+
+So "Qwen3.5 9B 87% beats Qwen3.5 35B A3B 86%" is a coin flip presented as a
+ranking, and the 44% vs 37% gap below Gemma is not resolvable at that sample
+size.
+
+One fairness caveat, the same correction we had to apply to our own numbers:
+every model runs the *same* tasks, so cross-model comparisons are **paired** and
+more powerful than the unpaired arithmetic above. Their rankings are better than
+these figures imply. They do not report that either.
+
+### But sampling error is the *small* term
+
+| source of uncertainty | magnitude |
+|---|---|
+| sampling (456 sims, p=.44) | ±4.6 pts |
+| **serving backend, same model id** | **~30 pts** |
+| our own readings of Gemma 4 26B A4B on this exact benchmark | **20% – 54%** |
+
+An error bar would capture the first and entirely miss the second, which for a
+hosted open-weights model is roughly six times larger. Publishing ±4.6% while
+the dominant uncertainty is *which anonymous server answered the request* would
+be worse than publishing nothing: it manufactures precision that does not exist.
+
+**So the fix is not error bars. It is reporting the serving configuration** —
+backend, precision, temperature, task split, step cap. For closed API models
+most of that is determinate. For open-weights models routed through resellers it
+is the single largest unreported variable, and essentially nobody publishes it.
+
+In fairness: confidence intervals clutter a bar chart, the audience wants an
+ordering, and this is an industry-wide norm rather than one publisher's lapse.
+The practical reading is that a leaderboard position for an open-weights model
+means "roughly this tier", not "beats the model on the next bar down".
+
+This is also the strongest argument for the shape of our own claim: a
+**before/after delta on a pinned stack** is more defensible than any absolute
+number, because pinning eliminates precisely the variance that dwarfs the error
+bars.
+
+---
+
 ## The methodological takeaway
 
 If you intend to make a before/after claim about a model — which is exactly what
