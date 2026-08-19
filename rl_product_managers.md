@@ -518,34 +518,29 @@ endpoint) but not a usable one for sweeps. We stay pinned to NextBit.
 
 ---
 
-## D14 — Our telecom number disagrees with the Artificial Analysis leaderboard
+## D14 — Our numbers vs the published leaderboards: mostly the serving stack
 
-Artificial Analysis reports **44%** for Gemma 4 26B A4B on τ²-bench telecom.
-Our runs have ranged **20%–54%** depending on configuration. Same model id.
+Full writeup: **[reports/leaderboard_vs_ours.md](reports/leaderboard_vs_ours.md)**.
 
-Candidate explanations, ranked by how much evidence we actually have:
+Artificial Analysis reports 44% for this model on tau2 telecom. We measured
+20%-54% across configurations. Pinning the serving backend moved us from ~24%
+to **40.0%** and closed most of the gap; the rest is within sampling error.
 
-1. **Serving backend — demonstrated, large.** See D13/B6. Google's endpoint
-   broke tool calls outright; provider groups differ by ~30 points. This alone
-   spans the disagreement.
-2. **Sample size — demonstrated.** Our telecom estimate moved 28.6% → 33.3% →
-   23.7% as n grew from 14 to 38. Standard error at n≈15 is ±12pp, so 44% was
-   never more than ~1.3 SE from our first reading. We should not have quoted a
-   14-sim number.
-3. **Reasoning mode — tested, inconclusive.** AA marks the model with a
-   reasoning lightbulb; we run reasoning off. A direct ablation gave 20.0%
-   (n=15, reasoning on, temp 1.0) vs 27.3% (n=11, reasoning on, temp 0) vs
-   23.7% (n=38, reasoning off). No separable effect at these sample sizes.
-4. **Temperature — untested, expected.** We measure at temp 1.0 because pass@k
-   is meaningless greedy; a leaderboard reports greedy. This should cost us
-   points relative to AA, in the observed direction.
-5. **Task set — untested.** We use τ2's 40-task `test` split. AA does not
-   publish which set it runs; `base` is 114 tasks and `full` is 2,285.
+Ranked by evidence:
 
-**What this means for the project:** a hosted-API pass@1 is not a stable
-quantity. It is a measurement of a model *and* a serving stack *and* a sampling
-config. For a before/after RL claim that is fatal unless every one of those is
-pinned — which is the strongest argument yet for self-hosting before we train.
+| cause | size | status |
+|---|---|---|
+| serving backend (one provider broken, two cannot serve tools) | ~30 pts | **fixed** — pinned to NextBit |
+| sample size (n=14 has +/-12pt SE) | large early | fixed — we stopped quoting tiny n |
+| temperature 1.0 vs greedy | few pts | **deliberate**, will not change: pass@k needs it |
+| reasoning on/off | none detected | tested, inconclusive at n=11-15 |
+| task subset (AA does not publish theirs) | unknown | unresolvable externally |
+
+**The claim worth making in the blog:** a benchmark score for a hosted
+open-weights model is not a property of the model. It is a property of the model
+*and* the anonymous backend that served it *and* the sampling config *and* the
+task subset — and three of those four are normally unreported. For a before/after
+RL claim that is disqualifying unless every one is pinned.
 
 ---
 
