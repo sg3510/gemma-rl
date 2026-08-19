@@ -813,6 +813,64 @@ engineering work, not glue.
 
 ---
 
+## D23 — Why a MoE, and how we fine-tune it
+
+Full writeup: **[reports/moe_finetuning.md](reports/moe_finetuning.md)**.
+
+**Why 26B A4B (MoE) over the dense Gemma 4 31B**, in order of weight:
+
+| | 26B A4B (MoE) | 31B (dense) |
+|---|---|---|
+| τ2 telecom | **44% AA / 35% ours — in band** | 60–65% — too easy |
+| active params | 3.8B | 31B (**8.2× FLOPs/token**) |
+| bf16 weights | 50.4 GB | 62.0 GB |
+| GPU, 30 GRPO steps | **$4.74** | $21.70 |
+
+1. **Only the MoE is in the difficulty band.** The dense 31B at 60–65% earns the
+   same "too easy" verdict that eliminated retail — picking it would undo the
+   whole selection exercise.
+2. **Sparsity is what makes the rollout loop viable.** At 3.8B active, generation
+   (~18 s) is balanced against customer-API latency (~18 s). Dense 31B pushes
+   generation to ~147 s, where it dominates wall-clock — and rollout throughput
+   is what sets the bill.
+3. **It fits** a single 141 GB H200 alongside LoRA, activations and a colocated
+   vLLM.
+
+**Honest counterargument, recorded rather than buried:** dense models have a far
+more battle-tested LoRA story, and that was a real reason to consider 31B. Also,
+telecom's `mms_issue` family — **1,984 of 2,285 tasks** — sits at 9% for 26B A4B
+and would plausibly be in band for a stronger model. That is our documented
+fallback.
+
+**Why MoE fine-tuning is fine.** The architecture is 30 layers, **128 experts,
+top-8 routing**, and that decides adapter placement:
+
+| strategy | trainable | gradient signal | verdict |
+|---|---|---|---|
+| **attention only, r=16** | **10.8M** | **100% of tokens** | **plan of record** |
+| router / gate | 10.8M | 100% of tokens | MoE-specific ablation |
+| all 128 experts, r=16 | 908M | ~6% per expert | sample-starved |
+
+Expert LoRA fails on *signal*, not memory (908M adapters is 1.8 GB). With top-8
+of 128, each expert sees ~6% of tokens, so across a few thousand RL rollouts
+most adapters get almost no gradient — fine for SFT on a corpus, poor for RL
+where rollouts are the scarce resource.
+
+**Router tuning is the opportunity a dense model cannot offer**: for the same
+~10.8M parameters it changes *which* experts fire rather than what they compute
+— recomposing existing capability, which suits a model that already knows these
+tools and mainly fails to apply them consistently. Needs a load-balancing loss
+to avoid routing collapse; queued as the first ablation.
+
+**Risk downgraded from high to medium**, and I should say why the original
+rating was wrong: it came from a general intuition about MoE tooling immaturity,
+not from this architecture or from checking vLLM. vLLM ships
+`lora/layers/fused_moe.py`, so serving adapters — the part that would have broken
+colocated rollouts — is implemented upstream. Adapter placement is now a tuning
+decision, settled in Stage C for ~$5.
+
+---
+
 ## Open questions
 
 - Does Gemma 4 26B A4B actually land in the 20–50% pass@1 band on retail?

@@ -118,6 +118,9 @@ Full reasoning: [reports/leaderboard_vs_ours.md](reports/leaderboard_vs_ours.md)
 | [rl_product_managers.md](rl_product_managers.md) | decision log — every call and why |
 | [reports/leaderboard_vs_ours.md](reports/leaderboard_vs_ours.md) | why our numbers differ from published leaderboards |
 | [reports/rl_readiness.md](reports/rl_readiness.md) | what stands between us and a training run |
+| [reports/eval_protocol.md](reports/eval_protocol.md) | how we differ from Sierra's protocol, and the power analysis |
+| [reports/moe_finetuning.md](reports/moe_finetuning.md) | why we train a MoE and where the adapters go |
+| [reports/modal_rl_plan.md](reports/modal_rl_plan.md) | staged plan for the GRPO run on Modal |
 
 ## Caveat on comparability
 

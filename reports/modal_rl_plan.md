@@ -92,7 +92,7 @@ three scenario archetypes, so a telecom-only gain is a weak claim.
 
 | risk | severity | mitigation |
 |---|---|---|
-| **LoRA on a MoE** — Gemma 4 26B A4B is mixture-of-experts; adapter support is less battle-tested than for dense models | high | verify on a tiny run in Stage C before committing; fall back to attention-only LoRA |
+| **Adapter placement on a MoE** — *downgraded from high after checking; see [moe_finetuning.md](moe_finetuning.md)* | medium | vLLM ships `lora/layers/fused_moe.py`, so serving works. Plan of record is **attention-only LoRA r=16** (10.8M params, 100% gradient signal). Expert LoRA is ruled out: top-8-of-128 routing gives each expert ~6% of tokens. Settled empirically in Stage C. |
 | **verl ↔ AgentGymEnv integration** — verl's agent loop expects its own interface, not Gymnasium | high | budget real time here; it is the main engineering task |
 | **GPU idle on customer-API latency** (50% of wall-clock) | medium | high rollout concurrency; consider batching episodes |
 | **24-hour function cap** | low | checkpoint + retry, standard Modal pattern |
