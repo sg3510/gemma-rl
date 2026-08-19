@@ -467,6 +467,57 @@ the binding quota is tokens per minute, not requests.
 is enabled on the key, since a single first-party backend is otherwise the
 cleanest option short of self-hosting.
 
+## D16 — Cap tau2 at 140 steps: a free 24% cost cut
+
+**Decided:** run tau2 with `--max-steps 140` instead of its default 200.
+
+**Why, from 199 observed simulations:**
+
+| outcome | n | median msgs | p95 | max |
+|---|---|---|---|---|
+| success (`user_stop`) | 121 | 34 | 74 | **136** |
+| failure (`max_steps`) | 78 | 202 | 202 | 202 |
+| failure (`user_stop`) | 36 | 28 | 56 | 86 |
+
+Loops dominate spend: 78 hopeless simulations burned 202 messages each, about
+75% of all message volume, while a typical success finishes in 34.
+
+| cap | successes lost | saving |
+|---|---|---|
+| 80 | 6 of 121 (5.0%) | — |
+| 100 | 1 (0.8%) | 39% |
+| **140** | **0 (0.0%)** | **24%** |
+
+140 sits above the longest successful trajectory we have ever recorded (136),
+so it costs us nothing measurable. We deliberately did not take the cheaper
+cap=100: saving another 15% while discarding a real success is the kind of
+trade that quietly biases a benchmark.
+
+Measured telecom cost is **$0.10/simulation** — 7x retail, because telecom
+conversations are long. That is what made the cap worth finding.
+
+**Reported with every telecom number**, since it is a deviation from tau2's
+default.
+
+---
+
+## D17 — Google AI Studio cannot serve Gemma at scale, and billing does not help
+
+Billing **is** enabled on the AI Studio key. Proof, same key, same realistic
+~4.2K-token prompt, concurrency 4:
+
+| model | result |
+|---|---|
+| `gemini-3.1-flash-lite` (paid tier) | 8/8 ok |
+| `gemma-4-26b-a4b-it` | 4/8, rest 429 |
+
+Gemma is free-tier-only on AI Studio — Google does not sell paid quota for it —
+so no billing change fixes the throttle. This closes out D13c: AI Studio is the
+*correct* backend (clean parallel tool calls, unlike OpenRouter's Google
+endpoint) but not a usable one for sweeps. We stay pinned to NextBit.
+
+---
+
 ## D14 — Our telecom number disagrees with the Artificial Analysis leaderboard
 
 Artificial Analysis reports **44%** for Gemma 4 26B A4B on τ²-bench telecom.
