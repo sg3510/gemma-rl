@@ -675,6 +675,62 @@ re-baseline locally before claiming any delta.
 
 ---
 
+## D20 — We deviate from Sierra's protocol on purpose, and it is still enough
+
+Full writeup: **[reports/eval_protocol.md](reports/eval_protocol.md)**.
+
+Sierra's submission guide asks for the `base` split (114 telecom tasks), 4+
+trials, the default user simulator, and a model **"not trained specifically on
+τ-bench tasks, rewards, or evaluation data"**. We break every one of those. The
+last one alone makes any submission **custom** by their own definition — they
+anticipated models trained on τ-bench and gave them a category.
+
+**We are running toy experiments and will not submit.** Our numbers are always
+"under this harness", never a leaderboard position.
+
+**Why our deviations are the right call anyway:**
+
+| deviation | reason |
+|---|---|
+| `test` (40) not `base` (114) | `base` contains the 74 training tasks; evaluating there after training on them is evaluating on the training set |
+| customer = gemini-3.7-flash @ 0 | cheap, strong, and never the policy being trained (D6/D7) |
+| step cap 140 not 200 | above the longest success ever recorded; 24% cheaper (D16) |
+| pinned NextBit bf16 | ~30-point swings between backends (D13b) |
+| temperature 1.0 not greedy | pass@k is meaningless greedy, and the baseline must match RL rollout temperature (D8) |
+
+**The statistical point, which corrects an earlier claim of mine.** I said the
+evaluation was underpowered and would cost ~$97. That used an *unpaired* test.
+Our design is paired — the same tasks before and after — and task difficulty is
+the dominant variance component, so it subtracts out.
+
+Power to detect +10 points:
+
+| design | sims/arm | unpaired | paired |
+|---|---|---|---|
+| `test` 40 x 4 | 160 | 36% | 63% |
+| **`test` 40 x 8** | **320** | 74% | **89%** |
+| `base` 114 x 4 | 456 | 91% | 97% |
+
+**40 tasks x 8 trials, analysed paired, gives 89% power for ~$49 both arms.**
+
+And Sierra's own use case — separating a 55% frontier model from a 25%
+open-weights one — is at **100% power** on their standard config. The benchmark
+is not weak. Ranking different models and detecting a small within-model delta
+are different statistical problems, and we had been judging theirs by ours.
+
+**What this commits us to:** identical task ids, trial counts, customer,
+temperature, backend and step cap across both arms; a test on per-task deltas
+rather than pooled totals; and a confidence interval on the delta. Any change to
+the serving stack between arms contaminates the result — the whole lesson of
+D13/D14.
+
+**What we still cannot claim:** an absolute leaderboard-comparable number; a +5
+point gain (39% power even at 40 x 16 — if the true effect is that small this
+evaluation cannot prove it, and we will say so); or generalisation from telecom
+alone, which is why τ2 airline and τ1 retail stay as transfer evals.
+
+---
+
 ## Open questions
 
 - Does Gemma 4 26B A4B actually land in the 20–50% pass@1 band on retail?
