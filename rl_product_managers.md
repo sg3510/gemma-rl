@@ -871,6 +871,49 @@ decision, settled in Stage C for ~$5.
 
 ---
 
+## D24 — A tiered reward, to make this RLHF rather than only RLVR
+
+Full design: **[reports/tiered_reward.md](reports/tiered_reward.md)**.
+
+τ-bench's reward is binary, so a **20-message success and a 72-message success
+on the same task both score 1.0**. Measured across 74 successful traces on the
+pinned stack:
+
+| observation | value |
+|---|---|
+| tasks with ≥2 successes | 22 → 50 comparable pairs |
+| pairs differing in length | **21 of 22**, median gap 8, max 52 |
+| traces making an **exact** duplicate call (same tool + args) | **50 of 74**, mean 4.2 |
+| message count | mean 47, sd 24 |
+
+**Design — three lexicographic tiers:**
+
+- **Tier 0, hard gate:** binary task success, never overridden. Not stylistic:
+  reward brevity without gating on success and the optimal policy is to say
+  nothing and terminate.
+- **Tier 1, programmatic and free:** duplicate calls, excess turns.
+- **Tier 2, human:** politeness, question quality, clarity.
+
+**What measuring changed.** We assumed humans would mostly break ties. They will
+not — of the 21 length-differing pairs, Tier 1 **agrees** on 20 (the shorter
+trace is also the cleaner one) and conflicts on 1. **Tier 1 auto-ranks ~95% of
+comparisons for free**, so the human budget belongs on dimensions Tier 1 cannot
+see at all.
+
+Measuring also killed a metric we would otherwise have built in: "authenticated
+before first write" is satisfied by **73 of 74** traces — no discriminative
+power for this model.
+
+**Discipline that carries over:** the shaped bonus applies only *among*
+successes and is small enough that no combination outranks a task failure, and
+the **held-out evaluation stays the untouched binary reward** (D9). A shaped
+training reward must never become the metric.
+
+Slots into the plan as **Stage B2** (free, pre-training analysis) and **Stage F**
+(comparison UI + DPO/preference model after the first RL run).
+
+---
+
 ## Open questions
 
 - Does Gemma 4 26B A4B actually land in the 20–50% pass@1 band on retail?

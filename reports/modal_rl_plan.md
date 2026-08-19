@@ -72,6 +72,12 @@ n=8 over the 74-task telecom train split, **stratified by scenario** — the ful
 pool is 87% `mms_issue` at 9% success, so uniform sampling yields degenerate
 groups (D18). Output: the task list with per-task pass@1 in [0.25, 0.75].
 
+**Stage B2 — Tier-1 quality metrics.** *(free)*
+Pure analysis of traces we already hold. Implement exact-duplicate-call and
+excess-turn detection, and report the quality spread across successes. Feeds a
+small shaped bonus *among* successes in Stage D, and the comparison UI in
+Stage F. See [tiered_reward.md](tiered_reward.md).
+
 **Stage C — wire the loop and prove it on 4 tasks.** *(~$5)*
 verl GRPO + `AgentGymEnv`. Do not train anything yet; verify one full step:
 rollouts collected, rewards attached, advantages computed group-relative, tool
@@ -87,6 +93,13 @@ Same task ids, trial counts, customer, temperature, backend and step cap as
 Stage A. Test on **per-task deltas**, report a confidence interval on the delta
 (D20). Then evaluate on τ2 airline and τ1 retail for transfer — telecom has only
 three scenario archetypes, so a telecom-only gain is a weak claim.
+
+**Stage F — human preference, optional.** *(cost = labelling time)*
+Trace-comparison UI, Tier-2 labels (politeness, question quality) on pairs the
+trained policy generates, then DPO or a preference model against the
+Tier-0-only baseline. This is the step that makes the project RLHF rather than
+RLVR. Measured first: Tier 1 auto-ranks ~95% of same-task comparisons, so human
+effort goes to dimensions Tier 1 cannot see, not to arbitrating efficiency.
 
 ## Risks, honestly
 
