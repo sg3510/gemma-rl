@@ -766,6 +766,53 @@ below it".
 
 ---
 
+## D22 — Modal for the GRPO run; every dependency verified first
+
+Full plan: **[reports/modal_rl_plan.md](reports/modal_rl_plan.md)**.
+
+Checked rather than assumed, because the vLLM tool-parser claim originally came
+from a half-remembered note:
+
+| assumption | verified |
+|---|---|
+| vLLM parses Gemma 4 tool calls | `vllm/tool_parsers/gemma4_engine_tool_parser.py` exists |
+| SGLang does too | `function_call/gemma4_detector.py` |
+| verl does multi-turn tool-calling RL | `examples/tutorial/agent_loop_get_started/` |
+| Modal hardware | H100 $3.95/hr, H200 141GB $4.54/hr; H100 may upgrade to H200 free |
+| Modal long jobs | 24 h max per call; checkpoint + retry beyond that |
+
+**The surprise: the GPU is the cheapest line.** A 30-step run at concurrency 32
+is ~1.2 GPU-hours = **$4.74**, against $30.72 of customer-simulator API and $49
+of before/after evaluation — ~$85 total, and Modal's $30/month free credit
+covers the compute outright.
+
+**Half of each rollout is GPU idle time** waiting on customer-API latency (~18 s
+of 36 s). Rollout concurrency is therefore the main cost lever: 16 → $9.48,
+32 → $4.74, 64 → $2.37 for the same work.
+
+**This changes the earlier offline-vs-online call.** The offline DPO path's
+advantage was never cost, it was avoiding infrastructure. At $5 of compute that
+advantage largely evaporates, and GRPO is the technique the demo is actually
+about.
+
+**Stage A is non-negotiable:** stand up our own vLLM and *re-baseline on it*
+before training. If the "before" comes from a rented API and the "after" from our
+own server, part of the delta is a change of server — the whole lesson of D13
+and D14.
+
+**Kill criteria set in advance** so we cannot rationalise later: if Stage C
+cannot overfit 4 tasks the loop is broken; if the final delta's confidence
+interval includes zero we report **inconclusive**; if telecom improves but
+airline and retail do not, we report it as **narrow**, which is a finding rather
+than a failure.
+
+**Biggest unknowns, both flagged as high risk:** LoRA on a *mixture-of-experts*
+model is less battle-tested than on dense models, and verl's agent loop expects
+its own interface rather than Gymnasium, so the τ2 integration is real
+engineering work, not glue.
+
+---
+
 ## Open questions
 
 - Does Gemma 4 26B A4B actually land in the 20–50% pass@1 band on retail?
