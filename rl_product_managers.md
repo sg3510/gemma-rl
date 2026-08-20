@@ -962,6 +962,52 @@ get off the ground. Queued against the Stage-2 curriculum tier.
 
 ---
 
+## D26 — Training against a simulated customer: what it does and does not bake in
+
+Full writeup: **[reports/simulator_distribution.md](reports/simulator_distribution.md)**.
+
+Prompted by a good challenge: if hand-written agent turns are out-of-distribution,
+is the *customer* side not already out-of-distribution, since it is Gemini rather
+than Gemma?
+
+**The distinction is which tokens carry loss.** In multi-turn training only the
+**agent's** tokens are in the loss; customer turns and tool results are masked as
+context. The simulator's phrasing is conditioned on, never produced — so the
+policy never learns to speak like Gemini. A human-written *agent* turn would sit
+in the loss, which is the different and worse problem.
+
+**But masking protects targets, not inputs.** We optimise a policy *conditioned
+on* Gemini-3.7-Flash-shaped customers. So the honest statement of any result is
+not "Gemma got better at telecom support" but **"Gemma got better at serving
+Gemini-3.7-Flash-shaped customers on telecom."** That is a real scope limit, and
+a deeper reason to keep the customer pinned than comparability alone: the
+simulator is not merely a measuring instrument, it is part of what gets optimised
+into the weights.
+
+**How practitioners handle it:** freeze-and-scope (what τ-bench does, and the
+common default); persona diversity; KL regularisation to the reference policy —
+usually sold as training stability but equally a brake on drifting into
+environment-specific quirks; held-out simulator; human validation; domain
+randomisation inherited from sim2real robotics.
+
+**What we will do:**
+1. Keep the customer pinned across both arms (D6, D20).
+2. **Sample personas** — free diversity we were not using. τ2's telecom pool is
+   already balanced 769 `None` / 760 `Easy` / 756 `Hard`, varying verbosity and
+   interrupt tendency.
+3. **Add a simulator-transfer check**: after training, re-evaluate the same
+   policy against a *different* customer model. If the gain survives it is
+   telecom competence; if it evaporates we learned to serve one simulator. Cheap
+   for us, rarely done, and informative either way.
+
+**Related (refines D25):** the same logic says demonstrations should come from
+`LLMGTAgent` **with Gemma as its `llm`** — the model's own phrasing, only the
+action choices supplied by the expert. Residual risk is a rationalization
+artifact: a guided model may express confidence it would not otherwise have,
+testable by comparing token distributions of guided versus natural successes.
+
+---
+
 ## Open questions
 
 - Does Gemma 4 26B A4B actually land in the 20–50% pass@1 band on retail?

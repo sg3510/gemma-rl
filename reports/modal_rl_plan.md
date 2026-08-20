@@ -88,6 +88,11 @@ memorised tasks goes up. If it cannot overfit 4 tasks, the loop is wrong.
 30 steps, G=8, 16 tasks/step from the frontier set. Checkpoint to a Volume every
 step so the 24-hour cap and any preemption are survivable.
 
+**Stage E2 — simulator-transfer check.** *(~$10)*
+Re-evaluate the trained policy against a **different** customer model on the same
+tasks. If the gain survives it reflects telecom competence; if it evaporates we
+optimised for one simulator. See [simulator_distribution.md](simulator_distribution.md).
+
 **Stage E — evaluate, paired.** *(~$49, already in the total)*
 Same task ids, trial counts, customer, temperature, backend and step cap as
 Stage A. Test on **per-task deltas**, report a confidence interval on the delta

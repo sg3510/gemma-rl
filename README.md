@@ -122,6 +122,7 @@ Full reasoning: [reports/leaderboard_vs_ours.md](reports/leaderboard_vs_ours.md)
 | [reports/moe_finetuning.md](reports/moe_finetuning.md) | why we train a MoE and where the adapters go |
 | [reports/modal_rl_plan.md](reports/modal_rl_plan.md) | staged plan for the GRPO run on Modal |
 | [reports/tiered_reward.md](reports/tiered_reward.md) | tiered reward design — the RLHF half |
+| [reports/simulator_distribution.md](reports/simulator_distribution.md) | what training against a simulated customer bakes in |
 
 ## Caveat on comparability
 
