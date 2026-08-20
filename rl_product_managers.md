@@ -589,11 +589,18 @@ by ~8 points and a telecom number off by up to 30.
 
 | k | pass@k | pass^k |
 |---|---|---|
-| 1 | **35.0%** | 35.0% |
-| 2 | 51.7% | 18.3% |
-| 4 | 67.5% | 5.0% |
+| 1 | **47.1%** | 47.1% |
+| 2 | 72.4% | — |
+| 3 | 83.7% | — |
 
-pass@1 of 35% sits in the middle of the 20-50% target band, sweet spot 30-40%.
+pass@1 of 47% sits at the upper end of the 20-50% target band.
+
+> **Corrected 19 Aug 2026.** Originally reported as 35.0%. Our tau2 loader was
+> counting `infrastructure_error` simulations as task failures — 41 of 160 —
+> which is exactly bug **B1**, the one we found in tau-bench's own runner and
+> fixed for tau1 and then reproduced in our own tau2 reader. Excluding them
+> gives 56 successes over 119 scored rollouts. The correction *improves* the
+> case: higher baseline and a larger frontier.
 
 **The number that actually decides it — the per-task histogram:**
 
@@ -605,7 +612,7 @@ pass@1 of 35% sits in the middle of the 20-50% target band, sweet spot 30-40%.
 4/4:  2  ##              degenerate (no gradient)
 ```
 
-**62% of tasks (25/40) produce mixed rollout groups** — the model demonstrably
+**67% of tasks (24/36 with >=2 scored trials) produce mixed rollout groups** — the model demonstrably
 can solve them but does not reliably, which is exactly the condition GRPO needs.
 Only 38% are degenerate. For comparison, tau1 retail at n=4 gave 50%.
 
@@ -821,7 +828,7 @@ Full writeup: **[reports/moe_finetuning.md](reports/moe_finetuning.md)**.
 
 | | 26B A4B (MoE) | 31B (dense) |
 |---|---|---|
-| τ2 telecom | **44% AA / 35% ours — in band** | 60–65% — too easy |
+| τ2 telecom | **44% AA / 47% ours — in band** | 60–65% — too easy |
 | active params | 3.8B | 31B (**8.2× FLOPs/token**) |
 | bf16 weights | 50.4 GB | 62.0 GB |
 | GPU, 30 GRPO steps | **$4.74** | $21.70 |
@@ -911,6 +918,47 @@ training reward must never become the metric.
 
 Slots into the plan as **Stage B2** (free, pre-training analysis) and **Stage F**
 (comparison UI + DPO/preference model after the first RL run).
+
+---
+
+## D25 — Expert demonstrations: available, useful, but aimed at a different problem
+
+τ2 gives us three ways to obtain a correct trajectory for a task the policy
+never solves, without writing anything by hand:
+
+- **`LLMGTAgent`** — a built-in agent that already knows the reference solution.
+- **`AgentGymEnv` play mode** — a human acts as the agent against the live
+  customer simulator, turn by turn.
+- **`evaluation_criteria.actions`** — every task ships its reference action
+  sequence; it is what the verifier replays to score the episode.
+
+**Why a trace cannot simply be written offline:** the customer simulator responds
+dynamically, so both sides cannot be scripted. A valid trajectory has to be
+generated interactively against the live environment, which is what play mode is
+for.
+
+**Why it does not slot into GRPO directly.** GRPO is on-policy: an expert
+trajectory has no valid importance ratio because the policy would never have
+produced it, and mixing it in silently corrupts the objective. The methods that
+*do* consume expert data are a different family — SFT warm-start then RL, expert
+iteration / STaR / RAFT, DAgger-style correction injection, or a
+behavioural-cloning term added alongside the RL loss.
+
+**Caveats:** distribution mismatch (a human-written trace teaches surface
+imitation rather than the decision procedure); and **train split only** — hand-
+solving test tasks is the D2 failure in its purest form.
+
+**Why it is the wrong tool for our main problem.** Our failures are **42%
+looping and only 11% genuine wrong-answer**, and pass@3 is 83.7% — the model
+largely knows *what* to do. It does not know when to **stop**. Demonstrations of
+correct behaviour do not obviously teach termination; the negative signal from a
+looping rollout does.
+
+**Where it would earn its keep:** `mms_issue` at 9%, where rollout groups are
+mostly all-zero and GRPO has no gradient at all. Expert traces there could
+bootstrap enough successes to create one — the classic use of demonstrations,
+which is not to improve a working RL loop but to start one that otherwise cannot
+get off the ground. Queued against the Stage-2 curriculum tier.
 
 ---
 

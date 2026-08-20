@@ -13,7 +13,7 @@ stack. Next step is training; see [reports/rl_readiness.md](reports/rl_readiness
 
 | environment | tasks x trials | pass@1 | frontier tasks | stack |
 |---|---|---|---|---|
-| **τ2 telecom** | 40 x 4 | **35.0% ±3.8%** | **62%** | pinned |
+| **τ2 telecom** | 40 x 4 | **47.1% ±4.6%** | **67%** | pinned |
 | τ2 airline | 20 x 2 | 45.0% ±7.9% | 30%* | pinned |
 | τ1 retail | 115 x 4 | 74.0% ±2.4% | 50% | unpinned |
 | τ1 airline | 50 x 4 | 48.7% ±4.0% | — | unpinned |

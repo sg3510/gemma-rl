@@ -36,6 +36,12 @@ def load(path: Path) -> tuple[dict[str, TaskStats], Counter, dict]:
         trial = int(sim.get("trial", 0))
         if (tid, trial) in seen:
             continue
+        # Same rule as tau1 (metrics.is_errored): a rollout that died on
+        # infrastructure is NOT a task failure. Counting it as one deflates
+        # pass@1 exactly the way tau-bench's blanket exception handler does.
+        if sim.get("termination_reason") == "infrastructure_error":
+            reasons["infrastructure_error"] += 1
+            continue
         seen.add((tid, trial))
         reward = float((sim.get("reward_info") or {}).get("reward", 0.0))
         tasks.setdefault(tid, TaskStats(task_id=tid, rewards=[])).rewards.append(reward)

@@ -14,7 +14,7 @@ fine-tuning story is sound rather than merely tolerable.
 | active params | 3.8B | 31B — **8.2× the FLOPs/token** |
 | bf16 weights | 50.4 GB | 62.0 GB |
 | τ2 telecom (Artificial Analysis) | **44% — in band** | 60–65% — too easy |
-| our measured τ2 telecom | **35% (pinned stack)** | not measured |
+| our measured τ2 telecom | **47.1% (pinned stack)** | not measured |
 | GPU cost, 30 GRPO steps | **$4.74** | $21.70 |
 
 Three independent reasons, in order of weight:
