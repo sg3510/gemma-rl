@@ -120,7 +120,7 @@ Full reasoning: [reports/leaderboard_vs_ours.md](reports/leaderboard_vs_ours.md)
 | [reports/rl_readiness.md](reports/rl_readiness.md) | what stands between us and a training run |
 | [reports/eval_protocol.md](reports/eval_protocol.md) | how we differ from Sierra's protocol, and the power analysis |
 | [reports/moe_finetuning.md](reports/moe_finetuning.md) | why we train a MoE and where the adapters go |
-| [reports/modal_rl_plan.md](reports/modal_rl_plan.md) | staged plan for the GRPO run on Modal |
+| [reports/rl_run_plan.md](reports/rl_run_plan.md) | staged plan for the GRPO run (RunPod primary) |
 | [reports/tiered_reward.md](reports/tiered_reward.md) | tiered reward design — the RLHF half |
 | [reports/simulator_distribution.md](reports/simulator_distribution.md) | what training against a simulated customer bakes in |
 | [reports/rl_notes.md](reports/rl_notes.md) | RL methodology notes, and every correction we made |

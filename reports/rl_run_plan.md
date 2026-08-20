@@ -1,7 +1,8 @@
-# Modal RL plan
+# RL run plan
 
 A staged plan to run GRPO on Gemma 4 26B A4B against τ2 telecom, on rented
-Modal GPUs. Every claim below was checked rather than assumed; the verification
+GPUs. **Primary host: RunPod** (see host selection below); Modal kept for
+short non-interactive jobs against its free credit. Every claim below was checked rather than assumed; the verification
 column says how.
 
 ## Verified before planning
@@ -12,22 +13,60 @@ column says how.
 | SGLang can too | **yes** | `python/sglang/srt/function_call/gemma4_detector.py` |
 | verl supports multi-turn tool-calling RL | **yes** | `examples/tutorial/agent_loop_get_started/`, plus documented SGLang multi-turn rollout |
 | τ2 exposes an RL-shaped interface | **yes** | `tau2.gym.AgentGymEnv`, Gymnasium-compatible, runs customer + tools + reward |
-| Modal has the hardware | **yes** | H100 SXM5 $3.95/hr, H200 SXM 141GB $4.54/hr, A100 80GB $2.50/hr |
-| Modal may upgrade H100 → H200 free | **yes** | stated in Modal's GPU guide; 141GB fits our whole stack on one card |
+| RunPod has the hardware, in stock | **yes** | queried live: **H200 141GB $3.59/hr, stock Medium**; H100 80GB $2.69/hr, Medium |
+| Modal has it too | **yes** | H100 $3.95/hr (may upgrade to H200 free), H200 $4.54/hr |
 | Modal can run a long job | **24 h max per call** | documented; longer runs need checkpoint + retry, which we want anyway |
-| Modal free credits | **$30/mo** (Starter) | ≈ 7.6 H100-hours — more than stage 3 needs |
+| Modal free credits | **$30/mo** (Starter) | ≈ 7.6 H100-hours — enough for Stage A |
+
+## Host selection: RunPod primary
+
+The decision axis is **serverless vs. a persistent box**, and it turns on one
+fact: 50 GB of weights must load before anything runs.
+
+- **Modal does not bill for thinking.** Between runs you pay nothing. But every
+  invocation reloads the model unless you configure memory snapshotting.
+- **A pod keeps the model resident.** You iterate against a warm vLLM in seconds,
+  but you pay while reading logs and editing code.
+
+Stage C is explicitly *"wire the loop and prove it overfits 4 tasks"* — many
+short debug cycles against a loaded model. That is pod-shaped work.
+
+| option | $/hr | 1.2 h run | +8 h dev |
+|---|---|---|---|
+| **RunPod H200 141G** | **$3.59** | $4.31 | $28.72 |
+| RunPod H100 80G | $2.69 | $3.23 | $21.52 |
+| Modal H100 (→H200) | $3.95 | $4.74 | $31.60 (upper bound; idle is free) |
+
+**Chosen: RunPod H200 at $3.59/hr.** 21% under Modal's H200, in stock, per-second
+billing, network volumes for checkpoints, and a plain SSH box so verl and vLLM
+install exactly as documented — which matters because the verl agent-loop
+integration is already the highest-risk piece.
+
+**Why not the cheaper H100 at $2.69.** 80 GB leaves ~30 GB after bf16 weights for
+activations, KV cache and LoRA. Rollout concurrency is our main cost lever, and
+concurrency is KV-cache-bound, so the 141 GB card likely finishes *sooner* and
+costs less in total despite the higher hourly rate. To be confirmed in Stage A.
+
+**Rejected:** Vast.ai (cheapest at ~$1.49, but interruptible instances against a
+run holding 50 GB for hours is a false economy); Together's fine-tuning API
+(SFT/DPO only — an online RL reward needs the environment in the loop, which no
+managed fine-tuning service can express); hyperscalers (IAM, quotas, VPC,
+image-building for no benefit at this scale).
+
+**Modal retained** for Stage A, which is short and non-interactive — a good use
+of the $30/month free credit.
 
 ## Architecture
 
 ```
-Modal container (1x H100/H200)
+RunPod pod (1x H200 141GB)
 ├── vLLM serving the CURRENT policy
 │     --enable-auto-tool-choice --tool-call-parser gemma4  (bf16)
 ├── rollout workers  ── N concurrent episodes
 │     └── tau2 AgentGymEnv  ── customer sim (Gemini 3.7 Flash, external API)
 │                            └── tools + DB + reward
 └── GRPO trainer (LoRA)  → weights pushed back to vLLM each step
-                          → checkpoints to a Modal Volume
+                          → checkpoints to a network volume
 ```
 
 The customer simulator stays an external API call. That is the one component we
@@ -51,10 +90,10 @@ an idle H200.
 
 | line | cost |
 |---|---|
-| GPU, 30 steps @ concurrency 32 | $4.74 |
+| GPU, 30 steps @ concurrency 32 (RunPod H200) | $4.31 |
 | customer-sim API, 3,840 rollouts | $30.72 |
 | eval before + after (40 × 8, paired, 89% power) | $49.00 |
-| **first full run** | **~$85** |
+| **first full run** | **~$84** |
 
 The GPU is the cheapest line. Budget attention accordingly.
 
@@ -113,8 +152,8 @@ effort goes to dimensions Tier 1 cannot see, not to arbitrating efficiency.
 | **Adapter placement on a MoE** — *downgraded from high after checking; see [moe_finetuning.md](moe_finetuning.md)* | medium | vLLM ships `lora/layers/fused_moe.py`, so serving works. Plan of record is **attention-only LoRA r=16** (10.8M params, 100% gradient signal). Expert LoRA is ruled out: top-8-of-128 routing gives each expert ~6% of tokens. Settled empirically in Stage C. |
 | **verl ↔ AgentGymEnv integration** — verl's agent loop expects its own interface, not Gymnasium | high | budget real time here; it is the main engineering task |
 | **GPU idle on customer-API latency** (50% of wall-clock) | medium | high rollout concurrency; consider batching episodes |
-| **24-hour function cap** | low | checkpoint + retry, standard Modal pattern |
-| **Cold start** loading 26B of weights | low | Modal Volume + memory snapshotting |
+| **pod interruption / 24 h Modal cap** | low | checkpoint to a network volume every step |
+| **Cold start** loading 26B of weights | low | persistent pod keeps it resident; Modal needs memory snapshotting |
 | **Reward hacking** — the agent finds a DB state that hashes correct without doing the task | medium | inspect trajectories of newly-successful tasks by hand |
 
 ## Kill criteria

@@ -775,7 +775,7 @@ below it".
 
 ## D22 — Modal for the GRPO run; every dependency verified first
 
-Full plan: **[reports/modal_rl_plan.md](reports/modal_rl_plan.md)**.
+Full plan: **[reports/rl_run_plan.md](reports/rl_run_plan.md)**.
 
 Checked rather than assumed, because the vLLM tool-parser claim originally came
 from a half-remembered note:
@@ -1053,6 +1053,51 @@ probability under the policy, which addresses (2) directly.
 **Worth keeping straight:** the customer-simulator concern (D26) really *is* a
 distribution question. This one was an estimator question wearing a distribution
 costume.
+
+---
+
+## D28 — RunPod as primary host, Modal retained for short jobs
+
+Full plan: **[reports/rl_run_plan.md](reports/rl_run_plan.md)** (renamed from
+`modal_rl_plan.md`).
+
+**Live prices, queried against the RunPod API rather than taken from blogs:**
+
+| GPU | VRAM | $/hr | stock |
+|---|---|---|---|
+| **NVIDIA H200** | **141G** | **$3.59** | Medium |
+| NVIDIA H100 80GB HBM3 | 80G | $2.69 | Medium |
+| H200 NVL / MI300X | 143G / 192G | $0.50 | **Low** — anomalous, not planned around |
+
+**The decision axis is serverless vs. a persistent box**, and it turns on one
+fact: 50 GB of weights must load before anything runs.
+
+- Modal does not bill for thinking — between runs you pay nothing — but every
+  invocation reloads the model unless memory snapshotting is configured.
+- A pod keeps the model resident, so you iterate against a warm vLLM in seconds,
+  but you pay while reading logs and editing code.
+
+Stage C is many short debug cycles against a loaded model. That is pod-shaped
+work.
+
+**Chosen: RunPod H200 at $3.59/hr** — 21% under Modal's H200, in stock,
+per-second billing, network volumes for checkpoints, and a plain SSH box so verl
+and vLLM install exactly as documented. That last point matters because the verl
+agent-loop integration is already the highest-risk item in the plan.
+
+**Why not the cheaper H100 at $2.69:** 80 GB leaves ~30 GB after bf16 weights for
+activations, KV cache and LoRA. Rollout concurrency is our main cost lever and is
+KV-cache-bound, so the 141 GB card likely finishes *sooner* and costs less in
+total despite the higher rate. To be confirmed in Stage A.
+
+**Rejected:** Vast.ai (~$1.49 but interruptible, a false economy for a run
+holding 50 GB for hours); Together's fine-tuning API (**SFT and DPO only** — an
+online RL reward must run the environment mid-training, which no managed
+fine-tuning service can express, though Together is a good fit for the *offline*
+DPO path); hyperscalers (IAM, quotas, VPC, image-building for no benefit here).
+
+**Modal retained** for Stage A — short, non-interactive, and a good use of the
+$30/month free credit.
 
 ---
 
