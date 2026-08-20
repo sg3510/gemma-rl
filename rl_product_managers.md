@@ -1008,6 +1008,54 @@ testable by comparing token distributions of guided versus natural successes.
 
 ---
 
+## D27 — CORRECTION: "expert traces are out of distribution" was the wrong argument
+
+Full note: **[reports/rl_notes.md](reports/rl_notes.md)**.
+
+I argued in D25 that hand-written expert trajectories are problematic because
+their phrasing is out of distribution for the model. **That argument is wrong**,
+and the challenge that surfaced it was correct: the model was pretrained on human
+text and instruction-tuned on human-written targets, every SFT pipeline trains on
+human completions, and our own trajectories already contain a non-Gemma
+interlocutor (the Gemini customer). If foreign text were disqualifying, the whole
+benchmark would be.
+
+**What "in distribution" means in RL is `π(a|s)`, not text style.** The question
+about an expert trajectory is not "does this read like the model" but "what
+probability does the current policy assign to these actions in these states".
+Reframed that way, the real constraints appear, and they are different in kind:
+
+1. **Estimator validity (mathematical).** GRPO optimises a clipped
+   importance-weighted objective with ratio `ρ = π_θ(a|s) / π_θ_old(a|s)`. For a
+   trajectory the policy never generated, `π_θ_old` is not small — it is
+   **undefined**. Substituting the current policy makes ρ ≡ 1 and quietly turns
+   the objective into something else. Nothing to do with how the text reads.
+2. **Clipping makes far-off-policy data inert.** Even with a valid behaviour
+   policy, a low-probability expert action gives a large ρ, clipping bites, and
+   the sample contributes almost nothing. Far-off-policy data is not dangerous so
+   much as useless.
+3. **Capability mismatch is the genuine risk.** Training on demonstrations of
+   reasoning the model cannot perform teaches the *surface form* of correct
+   answers without the underlying computation — confident, well-formatted, wrong.
+   This applies to any stronger demonstrator, human or model.
+
+**This explains why SFT-then-RL is the standard recipe**, which I had been
+treating as convention. SFT is off-policy by construction and has no ratio to
+invalidate — it simply raises `π(expert action | state)` by maximum likelihood.
+Once those actions carry non-trivial probability, RL can reinforce them. The
+first stage makes the second able to see the behaviour at all.
+
+**Does not change the plan of record**, but changes the reason: `LLMGTAgent`
+pointed at Gemma is still the preferred demonstration source — not because human
+phrasing is unusable, but because a model-generated trajectory already has high
+probability under the policy, which addresses (2) directly.
+
+**Worth keeping straight:** the customer-simulator concern (D26) really *is* a
+distribution question. This one was an estimator question wearing a distribution
+costume.
+
+---
+
 ## Open questions
 
 - Does Gemma 4 26B A4B actually land in the 20–50% pass@1 band on retail?
