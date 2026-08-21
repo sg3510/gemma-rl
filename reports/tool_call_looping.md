@@ -486,55 +486,96 @@ themselves. That is defensible. But if it is intentional, it is *the* dominant
 difficulty of the domain and should be stated as such, rather than emerging from
 inconsistent second-person phrasing.
 
-### Experiment: does clarifying the boundary fix it? (2026-08-20)
+### Experiment: one sentence changes the failure mode entirely
 
-**Deviation tested, not adopted.** A single paragraph appended to the domain
-policy, adding no telecom knowledge whatsoever -- only who owns which tools:
+**Two deviations tested, neither adopted.** Both append a statement of the tool
+boundary to the domain policy and change nothing else -- no telecom knowledge is
+added, only who owns which tools.
+
+**v1, verbose and prohibition-framed** (`<tool_boundary>`, ~70 words):
 
 > IMPORTANT: You can only call the tools that appear in your own tool list. The
-> device actions described in the technical support manual ... run ON THE
-> CUSTOMER'S PHONE. You cannot call them and they are not available to you.
-> Whenever the manual says to check or change something on the device, you must
-> ask the customer to do it themselves and rely on what they report back.
+> device actions described in the technical support manual -- checking the
+> status bar, network status, SIM status, APN settings, VPN, Wi-Fi, app
+> permissions, and toggling any of them -- run ON THE CUSTOMER'S PHONE. **You
+> cannot call them and they are not available to you.** Whenever the manual says
+> to check or change something on the device, you must ask the customer to do it
+> themselves and rely on what they report back to you.
 
-Run on the **10 worst-affected tasks** from the Novita grid (those where nearly
-every rollout hallucinated), 4 trials each, Novita, sampling pinned.
-`tau2probe/ablate_tool.py --mode clarify`.
+**v2, one line, pairing the constraint with the capability:**
 
-| | baseline | **+ tool_boundary** |
-|---|---|---|
-| rollouts that called a non-existent tool | **37/38 (97%)** | **4/35 (11%)** |
-| pass rate | 25/38 (66%) | 19/35 (54%) |
-| loop rate | 0% | 0% |
-| avg messages/rollout | 76 | **61** |
+> You can't call a customer's tools but you can ask them to use them.
 
-**The clarification nearly eliminates the hallucination -- and does not improve
-task success.** The 11.5-point pass-rate gap is the wrong way round and is not
-significant (z=1.00, p=0.32); with ~36 rollouts per arm this experiment cannot
-resolve differences below roughly 20 points.
+Both run on the 40-task `test` split, 4 trials, Novita, sampling pinned.
 
-**What that tells us, and it is not what we expected.** On a free-form backend
-the hallucination is *largely harmless*: the model reads `Tool not found`,
-adapts, and asks the customer. Removing the behaviour makes traces ~20% shorter
-(76 -> 61 messages) without making them more successful. So on Novita, the
-tool-boundary confusion is a **cost problem, not a capability problem**.
+| | baseline | v1 verbose | v2 one-line |
+|---|---|---|---|
+| scored rollouts | 156 | 160 | 143 |
+| **loop rate** (>=10 identical agent calls) | **7%** | **0%** | **0%** |
+| longest unproductive chain | 59 | 2 | 2 |
+| mean duplicate calls / rollout | 3.4 | 0.1 | 0.2 |
+| **hallucinated tool calls** | **66%** | **7%** | **28%** |
+| transfers to human | 51% | 55% | **67%** |
+| agent write actions / rollout | 0.95 | 0.69 | 0.77 |
+| avg messages / rollout | 65 | 52 | 55 |
+| pass@1 | 64.7% | 58.8% | 55.2% |
+| paired delta vs baseline | -- | -5.6% (CI -14.7..+3.4, p=0.22) | -8.5% (CI -18.0..+0.9, p=0.08) |
 
-That reverses the natural reading of the earlier NextBit finding. The 22-point
-gap between backends is not "hallucination destroys performance"; it is
-"**constrained decoding** destroys performance, by denying the model the error
-message it would otherwise recover from". The prompt ambiguity is the trigger;
-the serving-side guardrail is what makes it fatal.
+### What a single sentence did
 
-**Consequence for the eval-design critique above:** it stands, but narrowed.
-The prompt genuinely induces a 97% error rate, and that is a real design defect
-costing ~20% of every trace's length. It does *not* by itself distort the score
-on a well-behaved backend. It distorts the score catastrophically on a
-constrained one -- which is a statement about the interaction, and about how
-little a benchmark number means without the serving stack attached.
+**It eliminated the dominant failure mode outright.** Looping goes from 7% of
+rollouts to **zero**, in both versions. The longest silent chain of identical
+calls drops from 59 to 2. Duplicate calls all but vanish. This is the strongest
+confirmation of the D31 mechanism: the loop was never confusion about state, it
+was the agent reaching for an action it could not express and substituting the
+nearest legal read. Tell it plainly which tools are its own and the substitution
+behaviour disappears completely.
 
-**Decision: not adopted.** It buys no measurable capability, and it would cost
-comparability with every published number. Re-test if we ever move to a backend
-with constrained tool decoding, where the calculus is completely different.
+**It did not make the model better at the task.** Both arms are *negative* on
+success, and the effect is not distinguishable from zero (p=0.22 and p=0.08).
+What clarification buys is **cost and trace hygiene** -- 15-20% shorter traces,
+no loops, far fewer failed calls -- not capability.
+
+**Wording changed the failure mode, not just the magnitude.** The verbose
+prohibition removed 89% of hallucinations; the one-liner removed only 58%, but
+*both* removed 100% of loops. And the softer wording -- written specifically to
+avoid the passivity we suspected in v1 -- made transfers to a human **worse**
+(67% vs 55% vs a 51% baseline), not better. Whatever drives the give-up
+behaviour, it was not the prohibition phrasing we blamed.
+
+**Confound, stated plainly.** `clarify_v2` was run with the customer-failover
+pool at concurrency 24 while `clarify_full` used the OpenRouter customer at
+concurrency 12, so the v2 arm differs from the others in two ways -- prompt and
+customer serving path. The prompt effect cannot be cleanly separated in v2. The
+loop and hallucination numbers are robust to this (they are properties of the
+agent's own calls); the pass-rate and transfer numbers are not. A clean re-run
+costs ~$7.
+
+### Why this belongs in the write-up
+
+1. **A benchmark's headline number moved ~9 points on one sentence of prompt**
+   that adds no domain knowledge. Whatever τ2 telecom measures, a meaningful
+   share of it is whether the model resolves an ownership ambiguity the prompt
+   itself created.
+2. **The same sentence interacts with the serving stack.** Under NextBit's
+   constrained decoding the ambiguity is fatal (45% loop rate); under Novita it
+   is merely expensive; with one clarifying line it is gone. Three very
+   different "capabilities" from one model.
+3. **Fixing an error rate did not improve outcomes.** Removing 89% of failed
+   tool calls left success flat or slightly worse. A tempting proxy metric --
+   "the model stopped making invalid calls" -- would have reported a large win
+   that the task-level metric does not support.
+
+### Where this leaves the deviation
+
+**Not adopted for reported numbers.** It costs comparability with every
+published τ2 result and buys no measurable capability.
+
+**Strong candidate for training rollouts.** Zero loops and 15-20% shorter traces
+directly reduce GPU cost and let sequence-length-bound group sizes grow, and no
+comparability argument applies to rollout collection. If adopted there, the
+evaluation must still run the shipped prompt, and loop rate must be reported on
+both arms.
 
 ### What we are not doing
 
