@@ -151,7 +151,8 @@ Full reasoning: [reports/leaderboard_vs_ours.md](reports/leaderboard_vs_ours.md)
 | [reports/rl_readiness.md](reports/rl_readiness.md) | what stands between us and a training run |
 | [reports/eval_protocol.md](reports/eval_protocol.md) | how we differ from Sierra's protocol, and the power analysis |
 | [reports/moe_finetuning.md](reports/moe_finetuning.md) | why we train a MoE and where the adapters go |
-| [reports/rl_run_plan.md](reports/rl_run_plan.md) | staged plan for the GRPO run (RunPod primary) |
+| [reports/design_doc_v1.md](reports/design_doc_v1.md) | **current plan**: SFT-then-GRPO design, all settled params, technique review |
+| [reports/rl_run_plan.md](reports/rl_run_plan.md) | staged plan for the GRPO run (RunPod primary; superseded by design_doc_v1 where they conflict) |
 | [reports/tool_call_looping.md](reports/tool_call_looping.md) | the dominant telecom failure is a tool-call loop, not capability |
 | [reports/provider_loop_rates.md](reports/provider_loop_rates.md) | backends disagree 5× on loop rate; our pinned one is the worst |
 | [reports/tiered_reward.md](reports/tiered_reward.md) | tiered reward design — the RLHF half |
