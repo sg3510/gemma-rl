@@ -31,9 +31,28 @@ That is why the mms pool sample rides along as the second eval. Both are frozen.
 
 ## 2. Pass 1 — generate SFT data with the prompt modification
 
-Run the **train split (74 tasks) × n=6** with the *clarified* prompt
-(`--mode clarify`, the one-line boundary statement) on the pinned stack.
-~444 rollouts ≈ **$20**, ~40 min at concurrency 24.
+The task supply is much larger than the 74-task train split: telecom ships
+**2,285 tasks**, and after holding out `test` (40), the frozen mms eval sample
+(20) and `small` (20), **~2,130 remain free for training data**. Every one is a
+unique fault combination, so more tasks = more diversity, not repetition.
+
+| tier | tasks × trials | rollouts | est. cost | est. successful traces |
+|---|---|---|---|---|
+| train split | 74 × 6 | 444 | ~$20 | ~250–290 (@ ~60% pass) |
+| + pool draw, stratified by fault count | 326 × 4 | 1,304 | ~$59 | ~330–460 (@ 25–35% pass at pool difficulty) |
+| **Pass 1 total** | **400 tasks** | **~1,750** | **~$79** | **~600–750 traces ≈ 0.8–0.9M target tokens** |
+
+That takes the SFT set from "a nudge" to a respectable rejection-sampling
+corpus, and — because the pool is harder — its successes are concentrated
+exactly on the behaviours we want cloned: multi-fault diagnosis that the model
+only sometimes pulls off. Scale further ($27 per +100 tasks × 4) only if the
+SFT gate suggests the set is still thin.
+
+Procedure: run everything with the *clarified* prompt (`--mode clarify`, the
+one-line boundary statement) on the pinned stack, concurrency ~24 with the
+multi-route pools. **Freeze the drawn pool task list to
+`results/_snapshots/sft_pool_tasks.json` before running** — it is now a
+training-set definition, and the split guard must know about it.
 
 Why the clarified prompt for *generation*: it produces zero loops, 15–20%
 shorter traces, and rescued 3 of 5 previously-unsolved test tasks — i.e. it
@@ -58,9 +77,26 @@ duplicate-call gap) — free DPO data for later, tagged by `taurl/loops.py`.
   results are masked out of the loss — they are context, not targets
   ([simulator_distribution.md](simulator_distribution.md)). verl ships the
   multiturn tokenization/masking machinery.
-- **Template fidelity:** re-render each trace through Gemma's own chat template
-  (tool calls back to native `<|tool_call>` syntax) so trained tokens match
-  serving tokens. B7 established this inversion is possible from our saved JSON.
+- **Template fidelity — exact tool-call formatting is a hard requirement.**
+  Our saved traces hold tool calls as parsed JSON (`name` + `arguments` dict);
+  the model never saw that. It emitted Gemma's native serialization, which the
+  backend parsed. Training must invert this exactly:
+  1. Re-render every trace through **Gemma's own chat template** (the
+     tokenizer's, not a hand-rolled one): tool calls back to native
+     `<|tool_call>`-style syntax, tool results into the template's tool-response
+     turn, argument JSON serialized with the same key order and spacing the
+     model produces.
+  2. **Round-trip test:** template-render → parse back → must equal the
+     original call. Any trace that fails is dropped, not patched.
+  3. **Mask-alignment unit test:** the agent/context loss boundaries must land
+     exactly on template token boundaries. Off-by-one here silently trains on
+     fragments of tool results — the failure is invisible in loss curves and
+     shows up only as hallucinated tool results at serve time. A fixed known
+     trace with hand-verified token spans goes in `tests/`.
+  4. The same rendering path is reused verbatim for GRPO's rollout
+     tokenization, so train-time and RL-time token streams cannot drift.
+  B7 established the inversion is possible from our saved JSON; this section
+  makes it a tested contract rather than an intention.
 - **Prompt at train time = the SHIPPED prompt**, even though the data was
   generated under the clarified one. The trajectories contain no reference to
   the boundary text, and training must condition on what evaluation will
@@ -165,7 +201,7 @@ check (different customer model, same tasks).
   a gain that evaporates under a different customer simulator (simulator-
   overfit finding). Both are pre-registered outcomes, not embarrassments.
 
-**Cost of the full pipeline as designed:** ~$20 (SFT data) + ~$10 (SFT compute)
-+ ~$8 (SFT gate eval) + ~$25 (frontier rescan) + ~$85 (GRPO run) + ~$60 (paired
-evals + transfer) ≈ **$210 end to end**, dominated as ever by the customer
-simulator.
+**Cost of the full pipeline as designed:** ~$79 (SFT data, 400 tasks) + ~$12
+(SFT compute) + ~$8 (SFT gate eval) + ~$25 (frontier rescan) + ~$85 (GRPO run)
++ ~$60 (paired evals + transfer) ≈ **$270 end to end**, dominated as ever by
+the customer simulator.
