@@ -25,6 +25,35 @@ default. Nothing is inherited silently.
 | metrics | pass@k (macro over tasks) headline; pass^k reported alongside; loop rate and hallucination rate on every run | micro/macro differ when trial counts are uneven, and macro is what the paired test uses |
 | eval protocol | paired per-task deltas, same task ids / trials / stack / sampling / prompt in both arms; 40×8 gives 89% power for +10 pts | [eval_protocol.md](eval_protocol.md) |
 
+### Set accounting — frozen 2026-08-21, disjointness asserted in code
+
+| set | tasks | may be trained on? | touched when |
+|---|---|---|---|
+| `test` (shipped) | 40 | **never** | twice: before and after. Not during. |
+| mms pool eval (`mms_eval_extra.json`) | 20 | **never** | twice: before and after |
+| `small` (shipped) | 20 | never | smoke tests only, never for numbers |
+| **monitor** (`monitor_tasks.json`, new) | 24 | **never** | freely during training: loss curves, checkpoint selection, reward-hacking checks |
+| **trainable** (everything else, incl. the 74-task train split) | **2,181** | yes | SFT data gen, GRPO curriculum |
+
+**On validation sets:** the classic early-stopping validation split has indeed
+mostly disappeared from LLM fine-tuning — with a tiny LoRA and 1–2 epochs,
+overfitting-in-the-classical-sense is not the live risk. But two of its jobs
+survive under different names, and both need a set that is *neither* trained on
+*nor* the test set:
+
+1. **Checkpoint selection.** Picking the best of 30 GRPO checkpoints by test-set
+   score is selection on the test set — the reported delta becomes biased
+   upward. Checkpoints are picked on the monitor set; the test set is touched
+   exactly twice.
+2. **Reward-hacking surveillance during RL.** Training reward can rise while
+   true capability does not (shaped-reward exploits, simulator quirks). The
+   monitor set, evaluated every few steps with the *unshaped* binary reward, is
+   the tripwire.
+
+The monitor set is 24 tasks, stratified from the pool (so it is mms-heavy like
+the pool, 22/24), and its per-task results never inform anything except *when
+to stop and which checkpoint to keep*.
+
 **Known caveat carried, not hidden:** the shipped `test` split is 38%
 `service_issue` (2% of pool, ~87% pass) — it will overstate absolute capability.
 That is why the mms pool sample rides along as the second eval. Both are frozen.
