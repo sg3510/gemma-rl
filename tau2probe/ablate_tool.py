@@ -89,6 +89,10 @@ def main() -> None:
     ap.add_argument("--max-steps", type=int, default=140)
     ap.add_argument("--concurrency", type=int, default=4)
     ap.add_argument("--provider", default="NextBit")
+    ap.add_argument("--agent-model", default=None,
+                    help="override the agent model (e.g. openrouter/stealth/ox-alpha). "
+                         "Skips provider pinning and Gemma sampling defaults -- for "
+                         "curiosity runs, NOT for pinned-stack numbers.")
     ap.add_argument("--sampling", type=json.loads, default=None)
     ap.add_argument("--customer", choices=["openrouter", "aistudio", "failover"],
                     default="openrouter",
@@ -151,10 +155,18 @@ def main() -> None:
         raise SystemExit(f"task ids not found: {missing}")
     print(f"{len(tasks)} tasks x {args.trials} trials, dropping {args.drop}")
 
-    llm_args = json.loads(json.dumps(LLM_ARGS))
-    llm_args["extra_body"]["provider"]["only"] = [args.provider]
-    if args.sampling:
-        llm_args.update(args.sampling)
+    if args.agent_model:
+        agent_model = args.agent_model
+        llm_args = {"temperature": 1.0}
+        if args.sampling:
+            llm_args.update(args.sampling)
+        print(f"[run] CURIOSITY MODE: agent={agent_model}, no provider pin")
+    else:
+        agent_model = MODEL
+        llm_args = json.loads(json.dumps(LLM_ARGS))
+        llm_args["extra_body"]["provider"]["only"] = [args.provider]
+        if args.sampling:
+            llm_args.update(args.sampling)
     print(f"[run] provider={args.provider} llm_args={json.dumps(llm_args)}")
 
     if args.customer == "failover":
@@ -177,7 +189,7 @@ def main() -> None:
     config = TextRunConfig(
         domain=domain,
         agent=agent_name,
-        llm_agent=MODEL,
+        llm_agent=agent_model,
         llm_args_agent=llm_args,
         user="user_simulator",
         llm_user=user_llm,

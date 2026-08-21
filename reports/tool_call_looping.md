@@ -577,6 +577,61 @@ comparability argument applies to rollout collection. If adopted there, the
 evaluation must still run the shipped prompt, and loop rate must be reported on
 both arms.
 
+### The frontier-model control: ox-alpha never touches the customer's tools
+
+*2026-08-21, run for curiosity, turned out to be the control experiment the
+whole investigation needed. Flagged for the blog post.*
+
+`stealth/ox-alpha` (an unattributed frontier model on OpenRouter), same 40-task
+test split, same 4 trials, same shipped prompt with all its ambiguity, same
+customer simulator:
+
+| | ox-alpha | Gemma (Novita) | Gemma + one-line fix |
+|---|---|---|---|
+| pass@1 | **95.6%** | 64.4% | 55–59% |
+| pass@3 | **100%** | 85.6% | — |
+| pass^4 (all four succeed) | **87.5%** | 38.8% | — |
+| **hallucinated customer-tool calls** | **0 / 160** | 66% | 7–28% |
+| **loop rate** | **0 / 160** | 7% (45% on NextBit) | 0% |
+| agent tool calls per rollout | **5.8** | 11.3 | 4.4–4.7 |
+| tasks never solved | **0** | 5 | 3 |
+
+Reading the same manual that names the customer's tools in callable syntax —
+"You can check if Airplane Mode is ON by using `check_network_status()`" —
+ox-alpha **never once tried to call one**, across 160 rollouts. It resolved the
+boundary from the tool schema alone, every time, while using half of Gemma's
+tool calls and solving every task the smaller model never solved.
+
+Caveat for fairness: curiosity-mode serving (whatever backend OpenRouter gives
+stealth models, no provider pin, temperature 1.0 only), so the absolute number
+is not a pinned-stack measurement. The zero-hallucination and zero-loop counts
+are robust to that -- they are properties of the model's own emissions.
+
+**What this settles.** The tool-boundary discrimination is a *capability*, not
+purely an eval defect. A strong model performs it perfectly from the schema,
+with no prompt help. The eval-design critique above survives only in its
+narrowed form: the ambiguity is real, it costs weak models ~9 points on one
+sentence of prompt, and it interacts catastrophically with constrained decoding
+-- but "the benchmark is broken" is untenable when a frontier model scores 95.6%
+through the same ambiguity.
+
+**The blog-post arc, in one line each:**
+1. A small model fails a boundary discrimination the prompt actively muddles
+   (66% of rollouts call tools it does not have).
+2. One serving stack turns that recoverable mistake into an absorbing loop
+   (constrained decoding: 45% of rollouts die), another lets it self-correct --
+   a ~22-point swing that is a property of the *server*, not the model.
+3. One sentence of prompt removes the failure mode entirely (loops 7% -> 0%)
+   yet does not improve task success.
+4. A frontier model never makes the mistake at all: 0 hallucinated calls,
+   0 loops, 95.6% pass@1 -- proving the discrimination is learnable, the
+   environment has headroom, and the 31-point gap is real capability.
+
+It also bounds the RL project from above: nothing about the environment caps
+performance below ~96%, and the behaviours separating 64% from 96% (boundary
+respect, no repetition, call efficiency) are exactly the ones SFT and GRPO
+target.
+
 ### What we are not doing
 
 Not patching the manual. Rewriting the domain policy to separate the tool lists
