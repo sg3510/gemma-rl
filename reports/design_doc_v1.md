@@ -74,8 +74,29 @@ unique fault combination, so more tasks = more diversity, not repetition.
 That takes the SFT set from "a nudge" to a respectable rejection-sampling
 corpus, and — because the pool is harder — its successes are concentrated
 exactly on the behaviours we want cloned: multi-fault diagnosis that the model
-only sometimes pulls off. Scale further ($27 per +100 tasks × 4) only if the
-SFT gate suggests the set is still thin.
+only sometimes pulls off.
+
+**Why 400 and not all 2,181 — intentional, three reasons:**
+1. **The adapter is tiny.** A 10.8M-param attention-only LoRA doing a behaviour
+   nudge saturates quickly; ~700 traces / ~0.9M target tokens is already
+   generous for that job. Data volume is not the binding constraint until the
+   gate says it is.
+2. **Risk ordering.** Sweeping the full pool costs ~$430 *before* the SFT gate
+   has proven the recipe works. Spend $79, gate, then scale ($27 per +100 tasks
+   × 4) — the pool is not going anywhere.
+3. **Keep fresh tasks for GRPO.** Tasks whose successful trajectories entered
+   SFT are partially "spent" as RL curriculum — the policy has memorised a path.
+   Holding most of the pool back preserves an uncontaminated frontier supply
+   for the GRPO stage and for curriculum expansion in later runs.
+
+**Trace-discovery methods for Pass 1 — decided, with the ablation question
+answered explicitly:**
+
+| method | used? | why |
+|---|---|---|
+| clarified prompt (`--mode clarify`) | **yes** | full action space intact; zero loops; rescued 3/5 never-solved test tasks; traces contain no reference to the prompt change |
+| more sampling on stubborn tasks (n → 8–16) | **yes, fallback** | a 5%-solvable task yields a success 56% of the time at G=16; fully on-policy |
+| tool ablation / dynamic masking | **no** | changes the action space — traces never contain the masked tool, so training on them teaches avoiding `get_details_by_id` even where it is legitimate; and it barely worked (loop migrated in 86% of drop-arm rollouts, ~1 in 6 rescued). Retained as a *diagnostic* for reachability only. |
 
 Procedure: run everything with the *clarified* prompt (`--mode clarify`, the
 one-line boundary statement) on the pinned stack, concurrency ~24 with the
