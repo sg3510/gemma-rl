@@ -5,7 +5,7 @@
 | asset | state |
 |---|---|
 | Environment with an objective verifier | τ2 ships **`AgentGymEnv`**, a Gymnasium env where you act as the agent and τ2 runs the user simulator, tools, DB and reward |
-| Pinned, reproducible serving stack | NextBit bf16, temp 1.0, fixed customer, step cap 140 — all recorded per run |
+| Pinned, reproducible serving stack | NextBit bf16, temp 1.0, fixed customer, step cap 140 — all recorded per run. **Reproducible but wrongly chosen**: NextBit loops 5× more than Novita and loses 12% of cells to empty completions; sampling params were never pinned at all. See [provider_loop_rates.md](provider_loop_rates.md) |
 | Baselines across 5 environments | τ1 retail/airline, τ2 retail/airline/telecom |
 | Curriculum signal | per-scenario difficulty ladder inside telecom (9% / 44% / 57%) |
 | Analysis tooling | pass@k vs pass^k, frontier selection, failure taxonomy, resumable sweeps |

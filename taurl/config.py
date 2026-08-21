@@ -27,6 +27,15 @@ AGENT_MODEL_FREE = "google/gemma-4-26b-a4b-it:free"
 # or we cannot tell whether a failure came from the agent or from the customer.
 USER_MODEL = "google/gemini-3.7-flash"
 
+# Serving path note (2026-08-20): OpenRouter serves this model from six
+# endpoints, ALL Google (3x Vertex, 3x AI Studio, differing only in price tier),
+# so calling the Gemini API directly is the same first-party serving minus a
+# proxy hop -- 0.9s per call instead of 1.82s. It also escapes OpenRouter's
+# GLOBAL per-model RPM cap on gemini-3.7-flash, which is shared across all their
+# users and was the sole throughput bottleneck for our evals (the agent backend
+# never rate-limited). See reports/eval_protocol.md.
+USER_MODEL_DIRECT = "gemini/gemini-3.7-flash"
+
 # tau-bench interpolates the user-model string straight into its checkpoint
 # filename (run.py:30) and, unlike the agent model, never strips the vendor
 # prefix. A "/" in the name therefore becomes a directory separator, `open()`
@@ -100,8 +109,27 @@ PROVIDER_ROUTING = {"ignore": BLOCKED_PROVIDERS, "allow_fallbacks": True}
 # NextBit is chosen for bf16 (matching the precision we will fine-tune in),
 # full 262K context, and the best throughput of the bf16 options.
 #
-# `require_parameters` makes OpenRouter refuse any backend that cannot serve
-# our `tools` payload, rather than silently degrading.
+# ^ This reasoning is now known to be insufficient: it never measured loop rate,
+#   empty-completion rate, or whether the backend can serve the model's own
+#   sampling config. All three go against NextBit. See D30.
+#
+# SUPERSEDED 2026-08-20 (D30): NextBit is the WRONG choice for tau2 telecom.
+# On identical tasks and weights it locks into tool-call loops at 32% against
+# Novita's 6% (bf16 too, p=0.003), passes 60% against Novita's 91%, and emits
+# empty completions that killed 19 of 160 cells in one run against Novita's 5
+# of 40. It also cannot serve `top_k`, so it is structurally incapable of
+# Gemma's own generation_config (top_k=64, top_p=0.95).
+#
+# The comparison below that chose it was 10 tasks on tau1 RETAIL scored by pass
+# rate; it could not see either pathology. See reports/provider_loop_rates.md.
+# Plan of record: re-baseline on Novita with sampling parameters pinned
+# explicitly. This constant stays as-is only until that re-baseline lands, so
+# existing numbers remain reproducible.
+#
+# `require_parameters` makes OpenRouter refuse any backend that cannot serve our
+# `tools` payload, rather than silently degrading. NOTE the interaction with the
+# fix: adding `top_k` to the sampling args would make OpenRouter refuse NextBit
+# outright, since NextBit does not expose it.
 PINNED_PROVIDER = "NextBit"
 PINNED_ROUTING = {
     "only": [PINNED_PROVIDER],

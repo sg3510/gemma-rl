@@ -104,12 +104,27 @@ Stand up vLLM on Modal with the gemma4 tool parser, bf16. Re-run the τ2 telecom
 baseline against it. **This becomes the real "before".** If the "before" came
 from a rented API and the "after" from our own server, part of the delta is a
 change of server — the entire lesson of D13/D14. Gate: the new baseline should
-land near 35% and show no `malformed_tool_args`.
+land near the pinned pass@1, show no `malformed_tool_args`, **and show a
+tool-call loop rate comparable to the pinned stack's** (measure with
+`python -m taurl.loops`) — if the loop rate moves materially between serving
+stacks, part of the baseline was a serving artifact, and that has to be settled
+before any training delta can be attributed to the model. See
+[tool_call_looping.md](tool_call_looping.md).
 
 **Stage B — frontier scan on the train split.** *(~$25)*
 n=8 over the 74-task telecom train split, **stratified by scenario** — the full
 pool is 87% `mms_issue` at 9% success, so uniform sampling yields degenerate
 groups (D18). Output: the task list with per-task pass@1 in [0.25, 0.75].
+
+**Stage A2 — rollout hygiene.** *(free, before any training)*
+Two harness fixes that are prerequisites, not niceties:
+**(a) loop breaker** — terminate at 7 consecutive identical tool calls, score 0
+(`tau2probe/loop_breaker.py`); saves 12–55% of tokens and stops long looping
+trajectories from capping group size.
+**(b) retry-on-empty-completion** — some backends return a completely empty
+assistant message, which tau2 turns into a dead rollout; on NextBit this killed
+19 of 160 cells. During GRPO an empty completion mid-rollout would poison a
+whole group.
 
 **Stage B2 — Tier-1 quality metrics.** *(free)*
 Pure analysis of traces we already hold. Implement exact-duplicate-call and

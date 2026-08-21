@@ -11,14 +11,30 @@ way — are logged in **[rl_product_managers.md](rl_product_managers.md)**.
 **Environment chosen: τ2 telecom.** Baseline complete on a fully pinned serving
 stack. Next step is training; see [reports/rl_readiness.md](reports/rl_readiness.md).
 
+> **Re-baselined 2026-08-20 on Novita.** The old NextBit numbers were
+> substantially a *serving artifact* — 45% of rollouts ended in a tool-call loop
+> and 19 of 160 cells died on empty completions. On Novita (same weights, same
+> tasks, sampling now pinned explicitly) the loop rate is 7% and no cells are
+> lost. See [reports/provider_loop_rates.md](reports/provider_loop_rates.md),
+> [reports/tool_call_looping.md](reports/tool_call_looping.md), D30–D31.
+
 | environment | tasks x trials | pass@1 | frontier tasks | stack |
 |---|---|---|---|---|
-| **τ2 telecom** | 40 x 4 | **47.1% ±4.6%** | **67%** | pinned |
+| **τ2 telecom (Novita)** | 40 x 4 | **64.4%** | **55%** | pinned, sampling explicit |
+| τ2 telecom, **mms pool sample** | 20 x 4 | **23.8%** | **65%** | pinned, sampling explicit |
+| τ2 telecom (NextBit, superseded) | 40 x 4 | 41.9% | 56% | pinned |
 | τ2 airline | 20 x 2 | 45.0% ±7.9% | 30%* | pinned |
 | τ1 retail | 115 x 4 | 74.0% ±2.4% | 50% | unpinned |
 | τ1 airline | 50 x 4 | 48.7% ±4.0% | — | unpinned |
 
 \* measured at n=2, which systematically undercounts; see the decision log.
+
+**The balanced `test` split is not representative of the task pool.** It is 38%
+`service_issue` (2% of the pool, 87% pass) and 40% `mms_issue` (87% of the pool,
+36% pass). A pool-drawn mms sample gives **pass@1 23.8%, pass@4 65.0%, 65%
+frontier and zero tasks solved 4/4** — a far better RL target than the split's
+64% with 12 of 40 tasks already saturated. Curriculum and eval should be drawn
+from the pool, not the curated split.
 
 "Frontier tasks" = share producing mixed rollout groups, i.e. usable GRPO
 signal. Unpinned numbers predate the serving-stack fix and are **not**
@@ -70,6 +86,13 @@ python -m taurl.failures results/baseline_test
 Sweeps resume: re-run the same command and only missing `(task, trial)` cells
 execute. Rollouts that crashed are retried rather than counted as failures.
 
+```bash
+# trace viewer: per-attempt outcomes, traces, and ideal-vs-actual checks
+python -m viewer --all && open viewer/out/index.html
+```
+
+See [viewer/README.md](viewer/README.md).
+
 ## pass@k vs pass^k
 
 τ-bench reports **pass^k** (*all* k rollouts succeed). We need **pass@k**
@@ -91,8 +114,16 @@ discriminate between tasks.
 | `taurl/metrics.py` | pass@k / pass^k |
 | `taurl/triage.py` | difficulty levels + frontier selection |
 | `taurl/failures.py` | mechanical-vs-capability failure taxonomy |
+| `viewer/` | static trace viewer over any eval run (τ2 and τ1 adapters) |
 
 ## The pinned stack
+
+> **Superseded 2026-08-20.** NextBit turns out to be the worst of the three
+> working backends for τ2 telecom — 32% tool-call-loop rate against Novita's 6%
+> on identical tasks, and 19 of 160 cells lost to empty completions. Plan of
+> record is to re-baseline on **Novita** with sampling parameters pinned
+> explicitly. See [reports/provider_loop_rates.md](reports/provider_loop_rates.md)
+> and D30 in the decision log. The table below records what *was* pinned.
 
 A benchmark score for a hosted open-weights model is not a property of the
 model. It is a property of the model *and* the backend that served it. We
@@ -102,7 +133,7 @@ recorded per run:
 
 | knob | value |
 |---|---|
-| backend | OpenRouter → **NextBit only**, no fallbacks, `require_parameters` |
+| backend | OpenRouter → **NextBit only**, no fallbacks, `require_parameters` — **superseded, see [provider_loop_rates.md](reports/provider_loop_rates.md)** |
 | precision | bf16 (matches what we would fine-tune in) |
 | agent temperature | 1.0 (pass@k is meaningless greedy) |
 | customer | `gemini-3.7-flash` @ temp 0, fixed since day one |
@@ -121,6 +152,8 @@ Full reasoning: [reports/leaderboard_vs_ours.md](reports/leaderboard_vs_ours.md)
 | [reports/eval_protocol.md](reports/eval_protocol.md) | how we differ from Sierra's protocol, and the power analysis |
 | [reports/moe_finetuning.md](reports/moe_finetuning.md) | why we train a MoE and where the adapters go |
 | [reports/rl_run_plan.md](reports/rl_run_plan.md) | staged plan for the GRPO run (RunPod primary) |
+| [reports/tool_call_looping.md](reports/tool_call_looping.md) | the dominant telecom failure is a tool-call loop, not capability |
+| [reports/provider_loop_rates.md](reports/provider_loop_rates.md) | backends disagree 5× on loop rate; our pinned one is the worst |
 | [reports/tiered_reward.md](reports/tiered_reward.md) | tiered reward design — the RLHF half |
 | [reports/simulator_distribution.md](reports/simulator_distribution.md) | what training against a simulated customer bakes in |
 | [reports/rl_notes.md](reports/rl_notes.md) | RL methodology notes, and every correction we made |

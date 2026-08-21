@@ -228,7 +228,7 @@ an RL result is — every one of these must be pinned and reported, or the
 
 | knob | value |
 |---|---|
-| backend | OpenRouter → **NextBit only**, `allow_fallbacks: false`, `require_parameters: true` |
+| backend | OpenRouter → **NextBit only**, `allow_fallbacks: false`, `require_parameters: true` — **superseded 2026-08-20, see [provider_loop_rates.md](provider_loop_rates.md)** |
 | precision | bf16 (matches what we would fine-tune in) |
 | agent temperature | 1.0 |
 | customer | `gemini-3.7-flash` @ temp 0 |

@@ -386,6 +386,12 @@ unnecessary there.
 
 ## D13 — The serving backend moves the score more than anything we changed
 
+> **Conclusion superseded by [D30](#d30--nextbit-was-the-wrong-backend-and-the-loop-is-the-models).**
+> The *lesson* here holds and got stronger. The *choice* it produced — NextBit —
+> is wrong: measured on τ2 telecom it loops 5× more than Novita and loses 12% of
+> cells to empty completions. The probe below was 10 tasks on τ1 **retail**,
+> scored by pass rate, and could not see either failure.
+
 **What happened:** OpenRouter fans one model id across 8 backend providers at
 mixed precision — DeepInfra and SiliconFlow at **fp8**, NextBit/Novita/Parasail/
 Venice at **bf16**, Google and Cloudflare undeclared. We were routing across all
@@ -432,6 +438,12 @@ measurement to a single named provider and record it with every number.
 
 ## D13b — CORRECTION: fp8 vs bf16 was an artifact; the stack is now pinned
 
+> **Partly superseded by [D30](#d30--nextbit-was-the-wrong-backend-and-the-loop-is-the-models).**
+> "The four backends that actually work agree within sampling noise" is false for
+> τ2 telecom: NextBit 32% loop rate vs Novita 6% vs DeepInfra 10%, on identical
+> tasks (p=0.003). The fp8-vs-bf16 conclusion survives — precision is still not
+> the axis — but the two bf16 backends are the extremes of the new spread.
+
 D13 reported fp8 at 53.8% and bf16 at 22.2% and flagged it as untrustworthy.
 It was worse than untrustworthy — it was wrong, and for the reason we suspected:
 non-random attrition.
@@ -463,6 +475,14 @@ throughput of the bf16 options. `require_parameters` makes OpenRouter refuse a
 backend that cannot serve our tool payload rather than silently degrading.
 
 ## D13c — Google AI Studio: correct, but quota-bound
+
+> **Still true, and still unmeasured on telecom** (see D30). Re-confirmed
+> 2026-08-20: the `gemma-4-26b` quota is 16k input tokens/min against 5–10k-token
+> telecom turns, so the 40×4 comparison remains impossible. Note AI Studio is
+> **not** interchangeable with Novita: first-party Google serving vs a
+> third-party vLLM/SGLang deployment of the open weights, with different
+> templates, tool-call parsers, sampling defaults and possible internal
+> quantization.
 
 The `AISTUDIO_GOOGLE_KEY` route was evaluated as the ideal "one stack, one
 precision" answer, and it is *correct* where OpenRouter's Google endpoint is
@@ -537,6 +557,11 @@ endpoint) but not a usable one for sweeps. We stay pinned to NextBit.
 ---
 
 ## D14 — Our numbers vs the published leaderboards: mostly the serving stack
+
+> **See [D30](#d30--nextbit-was-the-wrong-backend-and-the-loop-is-the-models).**
+> This argued our numbers are a property of the model *and* its backend. That is
+> now demonstrated from the inside: our own telecom baseline is substantially a
+> NextBit artifact, not a measurement of Gemma.
 
 Full writeup: **[reports/leaderboard_vs_ours.md](reports/leaderboard_vs_ours.md)**.
 
@@ -1098,6 +1123,162 @@ DPO path); hyperscalers (IAM, quotas, VPC, image-building for no benefit here).
 
 **Modal retained** for Stage A — short, non-interactive, and a good use of the
 $30/month free credit.
+
+---
+
+## D29 — The dominant telecom failure is a tool-call loop, not missing capability
+
+Found by reading `pinned_telecom` attempt by attempt in the new trace viewer.
+
+**49 of 119 scored rollouts (41%) repeat one identical tool call ten or more
+times** until the step cap ends them. The median such trace makes 62 tool calls
+of which 7 are distinct, fires one call 54 times with 51 consecutive, and spends
+132 of its 140 messages doing it. Passing traces have no consecutive repeat at
+all. 44 of 49 loops are `get_details_by_id`, and only 6 of 49 had made any
+device-mutating call first — the agent polls for a state change it never caused.
+
+**Why it matters:** τ2 skips evaluation entirely on a premature termination, so
+50 of 160 rollouts were never scored against the task criteria. Conditional on
+not looping, pass@1 is **80%** (94% `mobile_data_issue`, 89% `service_issue`,
+40% `mms_issue`). Our 43% baseline is therefore substantially a measure of loop
+propensity, and so is the frontier band — a task sits in [0.25, 0.75] largely
+because it locked up on some trials and not others.
+
+**Consequences:** the curriculum must be re-measured after the loop is fixed;
+`mms_issue` is the only archetype with real gradient left (and 1,929 of the
+2,151 unused pool tasks are `mms_issue`, so it is inexhaustible); the balanced
+40-task `test` split loses most of its power if two archetypes sit at ~90%; and
+the fix order is scaffold guard → behaviour cloning on non-looping successes →
+GRPO for the residual, because spending the run on a failure a scaffold guard
+also fixes makes the delta unreportable. Stage A gains a loop-rate gate.
+
+Genuine capability failures are **6–14 of 63**, depending on where the repeat
+threshold is set, and are mostly `mms_issue` near-misses — 2 of 11 criteria
+unmet still scores 0, because τ2 multiplies over the reward basis.
+
+Full measurement, caveats and the selection-bias warning:
+[reports/tool_call_looping.md](reports/tool_call_looping.md).
+
+---
+
+## D30 — NextBit was the wrong backend, and the loop is the model's
+
+Two findings from the loop investigation, and the second qualifies the first.
+Full detail: [reports/tool_call_looping.md](reports/tool_call_looping.md) and
+[reports/provider_loop_rates.md](reports/provider_loop_rates.md).
+
+**1. The loop is a self-reinforcing attractor in the model, not a formatting
+bug.** Replaying real looping conversations truncated at increasing depth, the
+probability that the model re-issues the identical call is **23% → 87% → 97%**
+after 2, 5 and 8 identical results. It escapes 77% of the time at the first
+repeat, and is essentially absorbed by the fifth. Not caused by our wire format
+(clean: `role:"tool"` + matching `tool_call_id`, no reasoning replay), not fixed
+by a normalized payload (30%), by system-prompt guidance (22%), or by Gemma's
+canonical `top_p=0.95` (87%, identical to control). Annotating the repetition
+**backfires** (dedup note: 40%) — restating the call re-primes it.
+
+**Removing the looped tool does not help: the loop migrates.** With
+`get_details_by_id` deleted from the schema, 6 of 7 rollouts still locked up —
+on `get_customer_by_id` (×4) and `get_customer_by_phone` (×2), an 86% loop rate
+against the 45% baseline. The tool's identity is incidental; the failure is
+**passive polling**: 58 of 63 loops make no state-changing call first, and 51 of
+63 are on tasks whose fix requires a *customer device action* that the polled
+carrier-DB read is structurally blind to.
+
+**2. But the rate of ENTERING the attractor is dominated by the serving stack.**
+Identical tasks, weights, temperature and customer:
+
+| backend | quant | loop rate | pass rate | empty completions |
+|---|---|---|---|---|
+| **NextBit** (pinned) | bf16 | **32%** | 60% | **112** in one run |
+| DeepInfra | fp8 | 10% | 82% | 3 |
+| **Novita** | bf16 | **6%** | **91%** | 2 |
+
+NextBit vs Novita p = 0.003. Precision is not the axis — the two bf16 stacks are
+the extremes. **Decided: switch the pinned backend to Novita** and treat it as a
+deliberate re-baseline (both arms on the new stack; old numbers retained as the
+cautionary record). Novita also exposes `top_k`, which NextBit does not, so it is
+the only bf16 option that can serve Gemma's own `generation_config`
+(`top_k=64, top_p=0.95`).
+
+**Sampling parameters were never pinned at all.** We sent `temperature: 1.0` and
+left `top_p`/`top_k`/`repetition_penalty` to each host's undocumented defaults —
+a hole in the "pinned stack" claim since D13. They must now be sent explicitly
+and recorded like every other knob.
+
+**NextBit's second pathology:** 19 of 160 cells died on *empty completions*
+(`AssistantMessage must have either content or tool_calls`), task-correlated and
+retry-resistant, which is why a run-level pass@4 still does not exist (28 of 40
+tasks reached n=4). The harness needs retry-on-empty before any training run.
+
+**What the harness may and may not do.** A **breaker** (terminate at ≥7
+consecutive identical calls — recalibrated from 5 after the repaired grid showed
+passing traces reaching 6) is legitimate: it only stops paying for rollouts
+already lost, and is outcome-neutral by measurement. A **repair guard** (dedup
+notes, cached results) is not: it deletes the reward signal that teaches the
+model to stop and yields a policy that only works inside our scaffold.
+`repetition_penalty` is rejected on top of that for risking the structured
+output the harness scores. Dynamic, cascading **tool masking** — hide a tool
+while it is being looped, restore it afterwards — is the one promising middle
+path: it breaks the pattern rather than annotating it. First evidence is a single
+clean solve on a task that scores 0 in every baseline rollout, against 5 empty-
+completion deaths in the same arm. **Verdict: unproven, retest on Novita.** If
+adopted it belongs in training rollouts only, paired with a small per-activation
+reward penalty, never in evaluation.
+
+**Adopted: the loop breaker.** Terminate a rollout at **7 consecutive identical
+tool calls**, score 0. Outcome-neutral by measurement (worst passing trace
+reaches 6), and replaying it over completed runs saves **55%** of tokens on the
+NextBit grid and **12%** on Novita. It also improves training rather than merely
+saving money: seven repetitions already carry the negative signal, while fifty
+put most of the gradient mass on repeated tokens and drown the earlier turns
+that actually mattered. Protocol conditions in
+[reports/eval_protocol.md](reports/eval_protocol.md); implementation in
+`tau2probe/loop_breaker.py` with the safety property asserted in
+`tests/test_loop_breaker.py`.
+
+**Corrections issued.** The frontier share of 67% in D18/README is arithmetically
+wrong — it bins tasks by success count while ignoring unequal trial counts; the
+measured value is 56%. The repaired grid gives pass@1 **41.9%** macro (was 43.1%
+at n=119), pass@2 59.2%, loop rate 45%.
+
+---
+
+## D31 — The loop was a symptom; the disease is the agent/customer tool boundary
+
+**66% of Novita rollouts call a tool the agent does not have**, and every one is
+a *customer device tool* (`check_network_status` ×62, `toggle_airplane_mode`
+×34, …). τ2 gives device tools to the customer, not the agent — correctly, since
+that is how real support works — but the agent's own tech-support manual names
+them in callable syntax ("guide the user to use `toggle_airplane_mode()`") with
+no marker separating "mine" from "theirs".
+
+**On NextBit the same model hallucinated a tool zero times in 141 rollouts.**
+Not different behaviour: almost certainly constrained tool decoding. Blocked
+from emitting the tool it wants, it substitutes the nearest legal read and
+repeats it forever — which is exactly why **51 of 63 NextBit loops were on tasks
+needing a customer device action**. Novita lets the call through, returns
+`Tool not found`, and the model recovers **67 times out of 103**.
+
+**A serving-side guardrail turned a recoverable mistake into an absorbing
+loop.** That reframes D29/D30: "passive polling" was the visible symptom of a
+blocked action, not a reasoning failure about state.
+
+**This is arguably an eval-design flaw.** The boundary *is* stated ("What the
+user can do on their device"), but the same document then describes those tools
+in second person addressed to the customer ("Checks **your** phone") and
+instructs the agent "**You** can check ... by using `check_network_status()`".
+The real ground truth — the tool schema — arrives through a different channel
+than the prose. The result is that a benchmark meant to measure telecom
+troubleshooting substantially measures whether the model reconciles that
+mismatch, and the *severity* of getting it wrong is set by the backend's
+decoding constraints rather than by the model. A ~22-point swing on that
+interaction is close to a validity failure.
+
+Not patching the manual anyway — the discrimination is part of the task as
+shipped and a policy rewrite breaks comparability with every published number. Full write-up, including why this is worth
+publishing:
+[reports/tool_call_looping.md](reports/tool_call_looping.md#the-tool-boundary-failure-hallucinating-the-customers-tools).
 
 ---
 
