@@ -155,6 +155,16 @@ duplicate-call gap) — free DPO data for later, tagged by `taurl/loops.py`.
 - **Adapter:** attention-only LoRA r=16 (~10.8M params), per
   [moe_finetuning.md](moe_finetuning.md) — expert LoRA is ruled out by top-8-
   of-128 routing giving each expert ~6% of tokens.
+  **Stated plainly: LoRA is a memory-cost decision, not a quality one.**
+  Full-weight training of the 26B MoE needs weights + grads + optimizer states
+  (~300+ GB in mixed precision) — a multi-node job — while LoRA + colocated
+  vLLM fits a single H200 at $3.59/hr. Frontier-lab post-training (SFT and RL
+  alike) is full-parameter; published comparisons generally find LoRA close to
+  full FT for narrow behavioural adaptation but behind it at larger data scales
+  and distribution shifts. For this project's question — *does the pipeline
+  produce a measurable within-model gain* — LoRA is adequate; any absolute
+  gain should be read as a **lower bound** on what full-weight training would
+  yield, and that framing goes in the write-up.
 - **Schedule:** 1–2 epochs, lr 1e-5 → cosine to 0, batch ~64k tokens. Small on
   purpose: this is a warm start, not the experiment.
 - **Gate before proceeding:** re-run the 40×4 test-split eval on the SFT'd
@@ -232,7 +242,12 @@ check (different customer model, same tasks).
 4. **Ceiling risk on the test split:** at 64% baseline with 13/40 tasks
    saturated, headline headroom is limited — the mms pool eval (23.8%) is where
    improvement has room to show. Expect the delta to be larger there.
-5. **What we deliberately did NOT do:** repair guards, reward shaping in run 1,
+5. **LoRA, not full-weight — a budget ceiling, named.** Frontier practice is
+   full-parameter training; ours is a 10.8M-param adapter on a 26B model chosen
+   to fit one GPU. If gains are small, "adapter capacity" is a live explanation
+   alongside "method failed", and distinguishing them would need a full-weight
+   (or higher-rank / more-modules) run we have not budgeted.
+6. **What we deliberately did NOT do:** repair guards, reward shaping in run 1,
    training through the clarified prompt, tool masking in RL — each would have
    manufactured improvement the eval could not attribute to the model.
 
