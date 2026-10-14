@@ -10,11 +10,17 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
-# run artifacts
-results/
+# run artifacts (only the frozen task-set snapshots are tracked)
+results/*
+!results/_snapshots/
+results/_snapshots/*
+!results/_snapshots/*_tasks.json
+!results/_snapshots/mms_eval_extra.json
+!results/_snapshots/clarify_zero8_*.json
 *.log
 viewer/out/
 
 # tooling
 .qodo/
+.claude/
 .DS_Store

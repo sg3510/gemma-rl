@@ -1,15 +1,49 @@
-# rlhf-toy — τ-retail baseline & RL training frontier for Gemma 4 26B A4B
+# gemma-rl — RL for Product Managers
 
-Measures where `google/gemma-4-26b-a4b-it` actually lands on τ-bench retail, and
-turns per-task success rates into an RL curriculum.
+Where `google/gemma-4-26b-a4b-it` actually lands on τ²-bench telecom, measured
+carefully enough to train against — and what it took to trust the number.
 
-The design decisions behind all of this — and the bugs found in τ-bench along the
-way — are logged in **[rl_product_managers.md](rl_product_managers.md)**.
+Every non-obvious call, and the bugs found in the benchmark and the serving
+stack along the way, is logged in **[rl_product_managers.md](rl_product_managers.md)**:
+31 numbered decisions, each with what else was considered, why, and what would
+change our mind.
+
+## Key findings
+
+1. **A benchmark score for a hosted open model is a property of the model *and*
+   the serving stack.** Same weights, tasks and sampling gave ~30-point pass@1
+   swings between OpenRouter backends, and one backend corrupted tool calls
+   outright. Every knob is now pinned and recorded per run.
+   ([D13](rl_product_managers.md#d13--the-serving-backend-moves-the-score-more-than-anything-we-changed),
+   [leaderboard_vs_ours.md](reports/leaderboard_vs_ours.md), 2026-08-18)
+2. **The dominant failure was a tool-call loop, and it is a model attractor, not
+   a formatting bug.** 41% of rollouts repeated one call until the step cap.
+   Replaying looped conversations, the model re-issues the identical call
+   23% → 87% → 97% of the time after 2, 5 and 8 repeats; prompt guidance does
+   not fix it and annotating the repetition makes it worse.
+   ([D29](rl_product_managers.md#d29--the-dominant-telecom-failure-is-a-tool-call-loop-not-missing-capability),
+   [D30](rl_product_managers.md#d30--nextbit-was-the-wrong-backend-and-the-loop-is-the-models),
+   [tool_call_looping.md](reports/tool_call_looping.md))
+3. **The loop was a symptom; the backend's constrained tool decoding made it
+   absorbing.** Identical runs looped 32% on one bf16 backend and 6% on another.
+   The model was trying to call the *customer's* device tools — which τ² gives
+   to the customer, correctly, but whose manual describes them to the agent in
+   callable syntax. Blocked from emitting them, it substitutes the nearest legal
+   read and polls forever; allowed to emit them, it gets `Tool not found` and
+   recovers about two times in three.
+   ([D31](rl_product_managers.md#d31--the-loop-was-a-symptom-the-disease-is-the-agentcustomer-tool-boundary),
+   [provider_loop_rates.md](reports/provider_loop_rates.md))
+
+The GPU run is the expensive part of post-training; the eval is the hard part.
+None of the above was known before the first baseline, and training against
+that baseline would have produced a delta nobody could attribute.
 
 ## Status
 
 **Environment chosen: τ2 telecom.** Baseline complete on a fully pinned serving
-stack. Next step is training; see [reports/rl_readiness.md](reports/rl_readiness.md).
+stack; eval and monitor sets frozen. The GRPO run is designed
+([reports/design_doc_v1.md](reports/design_doc_v1.md)) but **not yet launched**;
+current readiness and open gaps are in [reports/rl_notes.md](reports/rl_notes.md).
 
 > **Re-baselined 2026-08-20 on Novita.** The old NextBit numbers were
 > substantially a *serving artifact* — 45% of rollouts ended in a tool-call loop
@@ -54,7 +88,7 @@ sampling yields mostly all-zero groups.
 ## Setup
 
 ```bash
-git clone --recurse-submodules <this repo> && cd rlhf-toy
+git clone --recurse-submodules https://github.com/sg3510/gemma-rl.git && cd gemma-rl
 uv venv --python 3.12
 uv pip install -e . && uv pip install --no-deps -e vendor/tau-bench
 echo 'OPENROUTER_API_KEY=sk-or-...' > .env

@@ -3,6 +3,62 @@
 Methodological findings from this project, including corrections to claims made
 earlier in it.
 
+## 2026-09-12 — OpenRouter article and current GRPO readiness
+
+**Follow-up prompt probe:** [clarify_zero8_probe.md](clarify_zero8_probe.md).
+Three historical 0/4 MMS tasks were re-tested. One reached 3/8 with the original
+prompt alone. The other two gave 0/6 → 1/8 and 0/7 → 0/8 under clarification;
+three baseline episodes remained unfinished when stopped after ~30.5 minutes.
+No observed frontier conversion (requires 2–6/8); one held-out success was
+discovered. These are not confirmed 0/8 baselines, and the missing episodes
+must not be counted as failures. Clarified arms had no detected loops.
+
+I measured the backend effect on 2026-08-18–20 (D13, D30,
+[provider_loop_rates.md](provider_loop_rates.md)). On 2026-09-07 Mo Moustafa
+published [So you want to use OpenRouter?](https://mmoustafa.com/blog/so-you-want-to-use-openrouter/)
+([Hacker News discussion](https://news.ycombinator.com/item?id=49621546)),
+independently reporting the same pattern: substantial same-model differences
+across providers, provider-specific tool parsing and empty completions, and
+declared quantization as a poor predictor of quality. It corroborates the
+backend investigation; it does not independently establish the cause of our
+Gemma failures.
+
+**Working approach:** use one pinned OpenRouter → Novita agent endpoint, no
+provider fallbacks, with explicit sampling (temperature 1.0, top_p 0.95,
+top_k 64). Keep the customer model and serving path fixed too. Multi-route
+infrastructure exists, but route equivalence remains unproven; it need not be
+on the critical path. Treat bf16 as provider-reported metadata, not proof of
+the entire inference stack's precision or behavior. Defer further provider /
+quantization investigation until controlled self-hosted comparisons can isolate
+precision, template, parser and decoding constraints.
+
+**Evals:** Novita telecom test is complete at 40×4, pass@1 64.4%, ~7% loops,
+55% frontier; the frozen MMS pool sample is 20×4, pass@1 23.8%, pass@4 65%,
+65% frontier and no tasks solved 4/4. The superseded NextBit full grid scored
+41.9% with ~45% loops and 19/160 infrastructure losses. The backend switch
+also pinned previously omitted sampling parameters, so the full-grid delta
+does not isolate a single serving variable. Prompt clarification removed
+loops without a demonstrated success-rate gain. Constrained decoding remains
+a hypothesis, pending a controlled test.
+
+**Ready to build and smoke-test GRPO, not to launch the full training run.**
+The objective verifier, eval/trace tooling and evidence of mixed-reward tasks
+exist. Still needed: trainable GPU weights and serving, a same-stack baseline,
+multi-turn trainer integration with correct tokenization and agent-only loss
+masks, policy-weight synchronization, and a four-task overfit gate. Saved API
+traces are analysis / possible SFT material, not fresh on-policy GRPO batches.
+Re-scan the training frontier at n=8 under whichever policy actually starts RL.
+
+The latest tentative design is [design_doc_v1.md](design_doc_v1.md): optional
+SFT warm start followed by binary-reward GRPO. Older readiness/run-plan and
+protocol sections contain superseded settings. In particular, the latest
+breaker proposal is ≥9 unproductive repeated calls, terminate-and-evaluate,
+training only. Resolve the design's SFT gate on `test` versus its held-out-set
+rule by using the monitor set for gate/checkpoint decisions. Final evaluation
+should pair identical stacks and task IDs (40×8 test plus 20×8 MMS), with
+per-task delta confidence intervals and separate transfer checks. Historical
+power and cost estimates must be recalculated for the actual run setup.
+
 ---
 
 ## 1. "Expert traces are out of distribution" is the wrong argument

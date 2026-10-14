@@ -1,7 +1,7 @@
 [project]
-name = "rlhf-toy"
+name = "gemma-rl"
 version = "0.1.0"
-description = "tau-bench retail baseline + RL training-frontier scan for Gemma 4 26B A4B"
+description = "tau2-bench telecom baseline + RL training-frontier scan for Gemma 4 26B A4B"
 requires-python = ">=3.12"
 dependencies = [
     "litellm>=1.61.0",

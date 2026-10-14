@@ -1,0 +1,86 @@
+{
+  "task_ids": [
+    "[mms_issue]airplane_mode_on|bad_network_preference|bad_wifi_calling|break_apn_mms_setting|break_app_both_permissions|data_usage_exceeded|unseat_sim_card|user_abroad_roaming_disabled_on[PERSONA:Hard]",
+    "[mms_issue]airplane_mode_on|bad_network_preference|break_apn_mms_setting|break_app_both_permissions|unseat_sim_card|user_abroad_roaming_enabled_off[PERSONA:None]",
+    "[mms_issue]airplane_mode_on|bad_wifi_calling|break_app_both_permissions|data_mode_off|data_usage_exceeded|unseat_sim_card[PERSONA:Hard]"
+  ],
+  "results": {
+    "plain": {
+      "1": {
+        "scored": 6,
+        "successes": 0,
+        "loops": 1,
+        "trials": [
+          1,
+          0,
+          2,
+          3,
+          4,
+          7
+        ]
+      },
+      "2": {
+        "scored": 8,
+        "successes": 3,
+        "loops": 1,
+        "trials": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ]
+      },
+      "3": {
+        "scored": 7,
+        "successes": 0,
+        "loops": 1,
+        "trials": [
+          3,
+          2,
+          5,
+          6,
+          7,
+          1,
+          4
+        ]
+      }
+    },
+    "clarify": {
+      "1": {
+        "scored": 8,
+        "successes": 1,
+        "loops": 0,
+        "trials": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          6,
+          7,
+          5
+        ]
+      },
+      "3": {
+        "scored": 8,
+        "successes": 0,
+        "loops": 0,
+        "trials": [
+          0,
+          2,
+          1,
+          3,
+          4,
+          5,
+          7,
+          6
+        ]
+      }
+    }
+  },
+  "baseline_stopped_after_minutes": 30.5
+}
